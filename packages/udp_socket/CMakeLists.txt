@@ -25,13 +25,11 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     ${Protobuf_INCLUDE_DIRS}
 )
-target_link_libraries(${PROJECT_NAME} PUBLIC
 
-)
-
-ament_target_dependencies(${PROJECT_NAME} PUBLIC
-    rclcpp
-    std_msgs
+target_link_libraries(${PROJECT_NAME}
+  PUBLIC
+    rclcpp::rclcpp
+    ${std_msgs_TARGETS}
 )
 
 install(
@@ -40,7 +38,7 @@ install(
 )
 
 install(
-    DIRECTORY proto launch config resource
+    DIRECTORY proto launch config
     DESTINATION share/${PROJECT_NAME}
 )
 
@@ -59,7 +57,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     # target_link_options(${PROJECT_NAME} PRIVATE -fsanitize=address,undefined)
     target_compile_options(${PROJECT_NAME} PRIVATE -g -O0)
 
-elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
+else()
     add_link_options(-flto=auto)
     target_compile_options(${PROJECT_NAME} PRIVATE -O3 -mtune=native -flto)
     target_link_options(${PROJECT_NAME} PRIVATE -flto)

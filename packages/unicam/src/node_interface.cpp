@@ -92,8 +92,8 @@ cv::Mat shrink_resize_crop(const cv::Mat& image, const cv::Size& size)
 }
 
 
-char* CameraNodeInterface::node_name = "camera";
-char* CameraNodeInterface::ns = "camera_optical_frame";
+const char* CameraNodeInterface::node_name = "camera";
+const char* CameraNodeInterface::ns = "camera";
 rclcpp::NodeOptions CameraNodeInterface::options = rclcpp::NodeOptions()
     .use_intra_process_comms(true)
     .automatically_declare_parameters_from_overrides(true);
@@ -188,10 +188,9 @@ void CameraNodeInterface::publish(int height, int width, const std::string& enco
     camera_pub->publish(std::move(cimage), std::move(cinfo), now());
 }
 
-rcl_interfaces::msg::SetParametersResult CameraNodeInterface::dynamic_reconfigure([[__attribute_maybe_unused__]] const std::vector<rclcpp::Parameter> &parameters)
+rcl_interfaces::msg::SetParametersResult CameraNodeInterface::dynamic_reconfigure([[maybe_unused]] const std::vector<rclcpp::Parameter> &parameters)
 {
-    rcl_interfaces::msg::SetParametersResult result;
-    result.successful = false;
+    auto result = rcl_interfaces::msg::SetParametersResult().set__successful(false);
     
     for (const auto &param : parameters) {
         RCLCPP_WARN_STREAM(logger, "Param `" << param.get_name() << "` does not support dynamic reconfigure");

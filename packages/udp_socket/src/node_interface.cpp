@@ -11,7 +11,7 @@
 #include <stop_token>
 #include <utility>
 
-char* UdpSocketNodeInterface::node_name = "udp_socket";
+const char* UdpSocketNodeInterface::node_name = "udp_socket";
 
 rclcpp::NodeOptions UdpSocketNodeInterface::options = rclcpp::NodeOptions()
     .use_intra_process_comms(true)
@@ -106,8 +106,7 @@ ProtobufLayer::ProtobufLayer() {
     proto_callback = register_callback(
         [this](const std::shared_ptr<std::string>& msg) {
             RCLCPP_INFO(logger, "I heard: %s", msg->data());
-            std_msgs::msg::String proto_msg;
-            proto_msg.data = *msg;
+            auto proto_msg = std_msgs::msg::String().set__data(*msg);
             proto_pub->publish(proto_msg);
         });
 }

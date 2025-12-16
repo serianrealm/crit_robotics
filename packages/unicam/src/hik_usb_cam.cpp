@@ -80,15 +80,13 @@ HikVisionUsbCam::~HikVisionUsbCam()
     }
 }
 
-rcl_interfaces::msg::SetParametersResult HikVisionUsbCam::dynamic_reconfigure([[__attribute_maybe_unused__]] const std::vector<rclcpp::Parameter> &parameters)
+rcl_interfaces::msg::SetParametersResult HikVisionUsbCam::dynamic_reconfigure([[maybe_unused]] const std::vector<rclcpp::Parameter> &parameters)
 {
-    rcl_interfaces::msg::SetParametersResult result;
-    result.successful = true;
+    auto result = rcl_interfaces::msg::SetParametersResult().set__successful(true);
 
     if (handle == nullptr) {
         RCLCPP_WARN(logger, "Camera handle uncaptured, refusing setting parameter.");
-        result.successful = false;
-        return result;
+        return result.set__successful(true);
     }
 
     for (const auto &param : parameters) {
@@ -103,7 +101,7 @@ rcl_interfaces::msg::SetParametersResult HikVisionUsbCam::dynamic_reconfigure([[
             MV_CC_SetGamma(handle, gamma);
         } else {
             RCLCPP_WARN_STREAM(logger, "Param `" << param.get_name() << "` does not support dynamic reconfigure");
-            result.successful = false;
+            result.set__successful(false);
         }
     }
 

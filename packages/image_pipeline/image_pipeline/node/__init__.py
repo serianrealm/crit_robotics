@@ -1,1 +1,1 @@
-from .node_interface import ImagePipelineNodeInterface
+from .pose_estimate import PosePipelineNodeInterface

@@ -1,3 +1,5 @@
+"""Entry point for launching the OpenVINO detection pipeline."""
+
 import rclpy
 
 from .pipe import OpenVinoEnd2endYolo

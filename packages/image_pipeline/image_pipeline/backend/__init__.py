@@ -1,1 +1,1 @@
-from packages.image_pipeline.image_pipeline.backend.openvino_backend import OpenVinoImagePipeline
+from .openvino_backend import OpenVinoBackend

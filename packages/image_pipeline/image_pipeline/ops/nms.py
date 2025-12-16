@@ -1,3 +1,5 @@
+"""Array-based helpers for filtering detections."""
+
 import numpy as np
 
 def end2end_fastnms(

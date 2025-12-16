@@ -25,13 +25,11 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME} PUBLIC
     ${OpenCV_LIBS}
     ${MVS_LIBS}
-)
-
-ament_target_dependencies(${PROJECT_NAME} PUBLIC
-    rclcpp
-    sensor_msgs
-    image_transport
-    camera_info_manager
+    ${sensor_msgs_TARGETS}
+    camera_info_manager::camera_info_manager
+    image_transport::image_transport
+    rclcpp::rclcpp
+    sensor_msgs::sensor_msgs_library
 )
 
 install(
@@ -40,7 +38,7 @@ install(
 )
 
 install(
-    DIRECTORY calibration launch config resource
+    DIRECTORY calibration launch config
     DESTINATION share/${PROJECT_NAME}
 )
 

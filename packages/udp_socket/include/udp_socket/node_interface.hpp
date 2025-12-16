@@ -12,16 +12,30 @@
 
 namespace asio = boost::asio;
 
+/**
+ * @brief Base node that encapsulates UDP broadcast/receive behavior.
+ *
+ * The class spins a dedicated io_context thread, exposes a callback hook
+ * for received packets, and publishes connection telemetry through RCLCPP logs.
+ */
 class UdpSocketNodeInterface : public rclcpp::Node {
 public:
     explicit UdpSocketNodeInterface();
 
     ~UdpSocketNodeInterface();
 
+    /**
+     * @brief Transmit a pre-built payload to the configured broadcast endpoint.
+     */
     void transfer_message(const std::shared_ptr<std::string>& msg);
 
     using CallbackHook = std::function<void(const std::shared_ptr<std::string>&)>;
 
+    /**
+     * @brief Register a callback invoked whenever UDP data arrives.
+     *
+     * @return Shared pointer to the stored callback for lifetime management.
+     */
     template <typename Tp>
     std::shared_ptr<CallbackHook> register_callback(Tp&& callback_fn) {
         static_assert(
@@ -38,6 +52,9 @@ protected:
     rclcpp::Logger logger;
 
 private:
+    /**
+     * @brief Schedule an asynchronous receive and recurse forever.
+     */
     void async_activate();
 
     asio::io_context ctx;
@@ -54,6 +71,9 @@ private:
     std::shared_ptr<rclcpp::TimerBase> timer;
 };
 
+/**
+ * @brief Demonstrates bridging UDP packets to ROS topics via std_msgs/String.
+ */
 class ProtobufLayer : public UdpSocketNodeInterface {
 public:
     explicit ProtobufLayer();
