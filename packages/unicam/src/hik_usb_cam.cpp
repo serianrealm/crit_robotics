@@ -9,6 +9,13 @@ HikVisionUsbCam::HikVisionUsbCam()
     if (int ecc = MV_CC_Initialize(); ecc != MV_OK) {
         RCLCPP_ERROR(logger, "HikVision SDK initialize failed. Check your SDK version and status.");
     }
+    if (!has_parameter("exposure_time")) {
+        declare_parameter("exposure_time", 2500.);
+    }
+    if (!has_parameter("gamma")) {
+        declare_parameter("gamma", 0.8);
+    }
+
 
     auto device = get_parameter_or<std::string>("device", "usb:0");
     try {
@@ -51,6 +58,8 @@ void HikVisionUsbCam::run() {
         MV_CC_CloseDevice(handle);
     }
 
+    MV_CC_OpenDevice(handle, MV_ACCESS_Control);
+
     /// NOTE: the 'nValue' is from the list : 0 2 
     MV_CC_SetEnumValue(handle, "ADCBitDepth", 2);
     MV_CC_SetAcquisitionMode(handle, MV_ACQ_MODE_CONTINUOUS);
@@ -61,12 +70,11 @@ void HikVisionUsbCam::run() {
     MV_CC_SetGammaSelector(handle, MV_GAMMA_SELECTOR_USER);
     MV_CC_SetBoolValue(handle, "GammaEnable", true);
 
-    auto gamma = get_parameter_or<double>("gamma", 0.80);
-    MV_CC_SetGamma(handle, gamma);
-    auto exposure_time = get_parameter_or<double>("exposure_time", 2500.);
+    auto exposure_time = get_parameter("exposure_time").as_double();
     MV_CC_SetExposureTime(handle, exposure_time);
+    auto gamma = get_parameter("gamma").as_double();
+    MV_CC_SetGamma(handle, gamma);
 
-    MV_CC_OpenDevice(handle, MV_ACCESS_Control);
     MV_CC_StartGrabbing(handle);
 
     MVCC_FLOATVALUE frame_rate;
@@ -88,8 +96,6 @@ HikVisionUsbCam::~HikVisionUsbCam()
 
 rcl_interfaces::msg::SetParametersResult HikVisionUsbCam::dynamic_reconfigure([[maybe_unused]] const std::vector<rclcpp::Parameter> &parameters)
 {
-    RCLCPP_ERROR(logger, "No Dynamic Reconf");
-    
     auto result = rcl_interfaces::msg::SetParametersResult().set__successful(true);
 
     if (handle == nullptr) {

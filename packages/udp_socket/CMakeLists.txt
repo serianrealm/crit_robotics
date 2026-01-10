@@ -18,6 +18,7 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 add_executable(${PROJECT_NAME}
     src/node_interface.cpp
     src/main.cpp
+    ${PROTO_SRCS}
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC include)
@@ -30,6 +31,7 @@ target_link_libraries(${PROJECT_NAME}
   PUBLIC
     rclcpp::rclcpp
     ${std_msgs_TARGETS}
+    ${Protobuf_LIBRARIES}
 )
 
 install(

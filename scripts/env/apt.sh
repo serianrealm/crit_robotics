@@ -10,4 +10,6 @@ sudo apt install -y \
   python3-colcon-common-extensions \
   python3-rosdep \
   python3-vcstool \
-  libboost-all-dev
+  libboost-all-dev \
+  protobuf-compiler \
+  libprotobuf-dev

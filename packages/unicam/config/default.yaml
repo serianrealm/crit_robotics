@@ -6,5 +6,5 @@
       pixel_height: -1
       timeout: 1.
       device: "usb:0"
-      exposure_time: 5000.
+      exposure_time: 2500.
       gamma: 15.

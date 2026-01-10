@@ -126,12 +126,13 @@ CameraNodeInterface::CameraNodeInterface()
     };
     timer = create_timer(timeout, daemon);
 }
+
 void CameraNodeInterface::publish(const cv::Mat& image)
 {
     auto pixel_width = get_parameter_or<int>("pixel_width", -1);
     auto pixel_height = get_parameter_or<int>("pixel_height", -1);
 
-    auto roi = shrink_resize_crop(image, cv::Size(pixel_width, pixel_height));  // FIXME: deduce pixel width and height
+    auto roi = shrink_resize_crop(image, cv::Size(pixel_width, pixel_height));
 
     auto cinfo = cinfo_manager->getCameraInfo();
     auto cimage = sensor_msgs::msg::Image()
@@ -143,7 +144,7 @@ void CameraNodeInterface::publish(const cv::Mat& image)
         .set__is_bigendian(false);
 
     /// NOTE: using copy assignment can decline copy time from 2ms to 0.5ms
-    cimage.data = std::vector<unsigned char>(image.datastart, image.dataend);
+    cimage.data = std::vector<unsigned char>(roi.datastart, roi.dataend);
 
     camera_pub->publish(
         std::make_unique<sensor_msgs::msg::Image>(cimage),

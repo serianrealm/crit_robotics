@@ -39,8 +39,7 @@ UdpSocketNodeInterface::UdpSocketNodeInterface():
     auto remote_port = get_parameter_or("remote_port", 6000);
     endpoint = asio::ip::udp::endpoint(broadcast, remote_port);
 
-    auto timeout_sec = get_parameter_or<double>("timeout", 1.0);
-    auto timeout = std::chrono::duration<double>(timeout_sec);
+    auto timeout = static_cast<std::chrono::duration<double>>(get_parameter_or<double>("timeout", 1.0));
 
     auto daemon = [this]() -> void {
         if (executor.joinable()) {
@@ -48,7 +47,7 @@ UdpSocketNodeInterface::UdpSocketNodeInterface():
         }
         async_activate();
         executor = std::jthread (
-            [this](std::stop_token /*st*/) {
+            [this](std::stop_token st) {
                 try {
                     ctx.run();
                 } catch (const std::exception& ex) {
@@ -57,9 +56,7 @@ UdpSocketNodeInterface::UdpSocketNodeInterface():
             });
     };
 
-    timer = create_wall_timer(
-        std::chrono::duration_cast<std::chrono::nanoseconds>(timeout),
-        daemon);
+    timer = create_timer(timeout, daemon);
 }
 
 UdpSocketNodeInterface::~UdpSocketNodeInterface() {
@@ -70,7 +67,7 @@ void UdpSocketNodeInterface::transfer_message(const std::shared_ptr<std::string>
     socket.async_send_to(
         asio::buffer(*msg),
         endpoint,
-        [this](std::error_code /*ecc*/, std::size_t bytes_sent) {
+        [this](std::error_code ecc, std::size_t bytes_sent) {
             RCLCPP_INFO(logger, "I sent %zu bytes", bytes_sent);
         });
 }
@@ -79,7 +76,7 @@ void UdpSocketNodeInterface::async_activate() {
     socket.async_receive_from(
         asio::buffer(*buffer),
         endpoint,
-        [this](std::error_code ecc, std::size_t /*bytes*/) {
+        [this](std::error_code ecc, std::size_t bytes) {
             if (!ecc) {
                 if (callback && *callback) {
                     (*callback)(buffer);
@@ -92,13 +89,22 @@ void UdpSocketNodeInterface::async_activate() {
 }
 
 ProtobufLayer::ProtobufLayer() {
-    proto_pub = create_publisher<std_msgs::msg::String>(
-        "test_recv",
-        rclcpp::SensorDataQoS());
+    auto qos =  rclcpp::QoS(rclcpp::QoSInitialization::from_rmw(rmw_qos_profile_t{
+        RMW_QOS_POLICY_HISTORY_KEEP_LAST,
+        10UL,
+        RMW_QOS_POLICY_RELIABILITY_RELIABLE,
+        RMW_QOS_POLICY_DURABILITY_VOLATILE,
+        {0UL, 0UL},
+        {0UL, 0UL},
+        RMW_QOS_POLICY_LIVELINESS_SYSTEM_DEFAULT,
+        {0UL, 0UL},
+        false
+    }));
 
+    proto_pub = create_publisher<std_msgs::msg::String>("test_recv", qos);
     proto_sub = create_subscription<std_msgs::msg::String>(
         "test_send",
-        rclcpp::SensorDataQoS(),
+        qos,
         [this](std_msgs::msg::String::SharedPtr msg) {
             transfer_message(std::make_shared<std::string>(msg->data));
         });
@@ -106,8 +112,7 @@ ProtobufLayer::ProtobufLayer() {
     proto_callback = register_callback(
         [this](const std::shared_ptr<std::string>& msg) {
             RCLCPP_INFO(logger, "I heard: %s", msg->data());
-            auto proto_msg = std_msgs::msg::String().set__data(*msg);
+            auto proto_msg = std_msgs::msg::String().set__data(msg->data());
             proto_pub->publish(proto_msg);
         });
 }
-
