@@ -27,7 +27,7 @@ public:
     /**
      * @brief Transmit a pre-built payload to the configured broadcast endpoint.
      */
-    void transfer_message(const std::shared_ptr<std::string>& msg);
+    void transfer_message(const std::shared_ptr<std::vector<unsigned char>>& msg);
 
     using CallbackHook = std::function<void(const std::shared_ptr<std::string>&)>;
 
@@ -72,14 +72,11 @@ private:
 };
 
 /**
- * @brief Demonstrates bridging UDP packets to ROS topics via std_msgs/String.
+ * @brief Demonstrates bridging UDP packets to any ROS topics.
  */
-class ProtobufLayer : public UdpSocketNodeInterface {
+class GenericUdpSocket : public UdpSocketNodeInterface {
 public:
-    explicit ProtobufLayer();
+    explicit GenericUdpSocket();
 
 private:
-    std::shared_ptr<rclcpp::Publisher<std_msgs::msg::String>> proto_pub;
-    std::shared_ptr<rclcpp::Subscription<std_msgs::msg::String>> proto_sub;
-    std::shared_ptr<CallbackHook> proto_callback;
 };

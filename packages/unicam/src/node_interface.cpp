@@ -9,9 +9,8 @@
 
 using namespace std::chrono_literals;
 
-std::string deduce_encoding(const cv::Mat &image)
+std::string deduce_encoding(int type)
 {
-    const int type = image.type();
     const int depth = CV_MAT_DEPTH(type);
     const int channels = CV_MAT_CN(type);
 
@@ -35,6 +34,13 @@ std::string deduce_encoding(const cv::Mat &image)
 
     throw std::runtime_error("Unsupported cv::Mat type");
 }
+
+std::string deduce_encoding(const cv::Mat &image)
+{
+    return deduce_encoding(image.type());
+}
+
+
 
 cv::Mat shrink_resize_crop(const cv::Mat& image, const cv::Size& size)
 {
@@ -90,6 +96,13 @@ CameraNodeInterface::CameraNodeInterface()
         image_transport::create_camera_publisher(
             this, "image_raw"));
 
+    if (!has_parameter("pixel_width")) {
+        declare_parameter("pixel_width", -1);
+    }
+    if (!has_parameter("pixel_height")) {
+        declare_parameter("pixel_height", -1);
+    }
+
     auto camera_name = std::string(get_namespace()).substr(1);
     auto url = get_parameter_or<std::string>("url", ""); 
     cinfo_manager = std::make_shared<camera_info_manager::CameraInfoManager>(this, camera_name, url);
@@ -107,16 +120,17 @@ CameraNodeInterface::CameraNodeInterface()
         }
     }
 
-    callback_handle = add_on_set_parameters_callback(
-        [this](const std::vector<rclcpp::Parameter> &parameters) -> rcl_interfaces::msg::SetParametersResult {
-            return dynamic_reconfigure(parameters);
-        });
-    
     auto timeout = static_cast<std::chrono::duration<double>>(get_parameter_or<double>("timeout", 1.0));
     auto daemon = [this]() -> void {
         if (this->is_alive()) {
             return;
         } else {
+            if (callback_handle == nullptr) {
+                callback_handle = add_on_set_parameters_callback(
+                    [this](const std::vector<rclcpp::Parameter> &parameters) -> rcl_interfaces::msg::SetParametersResult {
+                    return dynamic_reconfigure(parameters);
+                });
+            }
             try {
                 this->run();
             } catch (std::exception &ex) {
@@ -124,7 +138,9 @@ CameraNodeInterface::CameraNodeInterface()
             }
         }
     };
+
     timer = create_timer(timeout, daemon);
+    
 }
 
 void CameraNodeInterface::publish(const cv::Mat& image)
@@ -132,7 +148,18 @@ void CameraNodeInterface::publish(const cv::Mat& image)
     auto pixel_width = get_parameter_or<int>("pixel_width", -1);
     auto pixel_height = get_parameter_or<int>("pixel_height", -1);
 
-    auto roi = shrink_resize_crop(image, cv::Size(pixel_width, pixel_height));
+    cv::Mat roi{};
+    try {
+        roi = shrink_resize_crop(image, cv::Size(pixel_width, pixel_height));
+    } catch (...) {
+        roi = image;
+        RCLCPP_ERROR_STREAM_THROTTLE(
+            logger,
+            *get_clock(),
+            1e4,
+            "Invalid image size, using raw image."
+        );
+    }
 
     auto cinfo = cinfo_manager->getCameraInfo();
     auto cimage = sensor_msgs::msg::Image()
@@ -143,12 +170,12 @@ void CameraNodeInterface::publish(const cv::Mat& image)
         .set__step(roi.step)
         .set__is_bigendian(false);
 
-    /// NOTE: using copy assignment can decline copy time from 2ms to 0.5ms
+    /// NOTE: using copy assignment can decline copy time from 2ms to 0.3ms
     cimage.data = std::vector<unsigned char>(roi.datastart, roi.dataend);
 
     camera_pub->publish(
-        std::make_unique<sensor_msgs::msg::Image>(cimage),
-        std::make_unique<sensor_msgs::msg::CameraInfo>(cinfo),
+        std::make_unique<sensor_msgs::msg::Image>(std::move(cimage)),
+        std::make_unique<sensor_msgs::msg::CameraInfo>(std::move(cinfo)),
         now()
     );
 }

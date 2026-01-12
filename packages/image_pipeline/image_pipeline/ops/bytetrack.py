@@ -342,7 +342,7 @@ class ByteTrack:
         self.frame_count = 0
         self.trackers:list[KalmanBoxTracker] = []
 
-    def update(self, dets=np.empty((0, 6))):
+    def update(self, dets=np.empty((0, 5)), payload=None):
         """
         Update the tracker state for one frame.
 

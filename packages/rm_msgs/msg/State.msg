@@ -1,0 +1,3 @@
+geometry_msgs/Vector3 linear_velocity
+
+uint8 vision_mode

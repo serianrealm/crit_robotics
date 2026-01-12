@@ -16,7 +16,6 @@ HikVisionUsbCam::HikVisionUsbCam()
         declare_parameter("gamma", 0.8);
     }
 
-
     auto device = get_parameter_or<std::string>("device", "usb:0");
     try {
         auto pos = device.find(':');

@@ -1,9 +1,7 @@
 syntax = "proto3";
 
-package demo;
+package proto;
 
-message Pose {
-    double x = 1;
-    double y = 2;
-    double theta = 3;
+message  {
+    
 }
