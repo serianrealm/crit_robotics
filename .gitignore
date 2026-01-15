@@ -80,3 +80,6 @@ AMENT_IGNORE
 
 # Logs
 MvSdkLog
+
+# nn
+pytorch_model.bin

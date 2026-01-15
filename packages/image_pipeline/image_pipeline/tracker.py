@@ -2,12 +2,12 @@
 
 import rclpy
 
-from .pipe import 
+from .node import SequentialTracker
 
 def main():
     rclpy.init()
 
-    node = OpenVinoEnd2endYolo()
+    node = SequentialTracker()
 
     rclpy.spin(node)
     

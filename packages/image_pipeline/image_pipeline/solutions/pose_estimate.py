@@ -4,20 +4,9 @@ import cv2
 import numpy as np
 from typing import Optional, Sequence, Tuple
 
-BIG_ARMOR_POINTS: Sequence[Tuple[float, float, float]] = []
-SMALL_ARMOR_POINTS: Sequence[Tuple[float, float, float]] = []
-BASE_POINTS: Sequence[Tuple[float, float, float]] = []
-
-CLASS_TO_POINTS = {
-    1: BIG_ARMOR_POINTS,
-    6: BIG_ARMOR_POINTS,
-    2: SMALL_ARMOR_POINTS,
-    4: SMALL_ARMOR_POINTS,
-    5: BASE_POINTS,
-}
 
 def pose_estimate(keypoints: np.ndarray,
-                  class_id: int,
+                  object_points: np.ndarray,
                   camera_matrix: np.ndarray,
                   distortion_coefficients: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
     """
@@ -25,8 +14,7 @@ def pose_estimate(keypoints: np.ndarray,
 
     Returns position and orientation.
     """
-    object_points = np.asarray(CLASS_TO_POINTS.get(class_id, SMALL_ARMOR_POINTS), dtype=np.float32)
-    keypoints = np.asarray(keypoints, dtype=np.float32).reshape(-1, 2)
+
     try:
         is_success, rvec, tvec = cv2.solvePnP(
             objectPoints=object_points,

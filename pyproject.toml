@@ -12,4 +12,7 @@ dependencies = [
     "numba>=0.63.1",
     "opencv-python-headless>=4.12.0.88",
     "openvino==2025.4.0",
+    "safetensors>=0.7.0",
+    "torch>=2.9.1",
+    "torchvision>=0.24.1",
 ]

@@ -83,6 +83,7 @@ cv::Mat shrink_resize_crop(const cv::Mat& image, const cv::Size& size)
 }
 
 
+
 const char* CameraNodeInterface::node_name = "camera";
 const char* CameraNodeInterface::ns = "hikcam";
 rclcpp::NodeOptions CameraNodeInterface::options = rclcpp::NodeOptions()

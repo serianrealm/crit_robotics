@@ -1,3 +1,7 @@
+from typing import Any
+
+import numba
+import lap
 import numpy as np
 
 def convert_bbox_to_z(bbox):
@@ -51,6 +55,7 @@ def convert_x_to_bbox(x,score=None):
         return np.array([x[0]-w/2.,x[1]-h/2.,x[0]+w/2.,x[1]+h/2.,score]).reshape((1,5))
 
 
+
 class KalmanFilter:
     """
     Minimal Kalman filter for the constant-velocity bounding-box model.
@@ -85,14 +90,24 @@ class KalmanFilter:
 
         return self.x
 
+class TrackingObject:
+    """
+    Docstring for TrackingObject
+    
+    :var bbox: Description
+    :var x: Description
+    :var score: Description
+    :vartype score: float
+    :var info: Description
+    :var detections: Description
+    :var trackers: Description
+    :var iou_threshold: Description
+    :vartype iou_threshold: float
+    """
 
-class KalmanBoxTracker:
-    """
-    Tracklet that keeps the entire detection info vector alongside the state.
-    """
     count = 0
 
-    F = np.array([
+    _F = np.array([
         [1,0,0,0,1,0,0],
         [0,1,0,0,0,1,0],
         [0,0,1,0,0,0,1],
@@ -102,44 +117,70 @@ class KalmanBoxTracker:
         [0,0,0,0,0,0,1]
     ], dtype=np.float32)
 
-    H = np.array([
+    _H = np.array([
         [1,0,0,0,0,0,0],
         [0,1,0,0,0,0,0],
         [0,0,1,0,0,0,0],
         [0,0,0,1,0,0,0]
     ], dtype=np.float32)
 
-    def __init__(self, info:np.array):
-        """
-        Parameters
-        ----------
-        info : np.ndarray
-            Detection vector ``[x1, y1, x2, y2, score, class, ...]`` that
-            becomes the initial measurement and metadata payload for the track.
-        """
-        self.info = info
+    def __init__(
+        self,
+        class_id: int | None = None,
+        score: float | None = None,
+        bbox: np.ndarray | list | None = None,
+        mask: np.ndarray | None = None,
+        **kwargs
+    ):
+        self.class_id = class_id
+        self.score = score
+        self.bbox = np.asarray(bbox) if bbox else None
+        self.mask = np.asarray(mask) if mask else None
 
-        self.kf = KalmanFilter(dim_x=7, dim_z=4) 
-        self.kf.F = KalmanBoxTracker.F
-        self.kf.H = KalmanBoxTracker.H
+        for k, v in kwargs.items():
+            setattr(self, k, v)
 
-        self.kf.R[2:,2:] *= 10.
-        self.kf.P[4:,4:] *= 1000. #give high uncertainty to the unobservable initial velocities
-        self.kf.P *= 10.
-        self.kf.Q[-1,-1] *= 0.01
-        self.kf.Q[4:,4:] *= 0.01
+        self.post_init()
+    
+    def post_init(self):
+        self._kf = KalmanFilter(dim_x=7, dim_z=4) 
+        self._kf.F = TrackingObject._F
+        self._kf.H = TrackingObject._H
 
-        self.kf.x[:4] = convert_bbox_to_z(self.bbox)
+        self._kf.R[2:,2:] *= 10.
+        self._kf.P[4:,4:] *= 1000. #give high uncertainty to the unobservable initial velocities
+        self._kf.P *= 10.
+        self._kf.Q[-1,-1] *= 0.01
+        self._kf.Q[4:,4:] *= 0.01
 
-        self.time_since_update = 0
-        self.history = []
-        self.hits = 0
-        self.hit_streak = 0
-        self.age = 0
-        self.id = KalmanBoxTracker.count
-        KalmanBoxTracker.count += 1
+        self._kf.x[:4] = convert_bbox_to_z(self.bbox)
 
-    def update(self, info):
+        self._time_since_update = 0
+        self._history = []
+        self._hits = 0
+        self._hit_streak = 0
+        self._age = 0
+
+        cls = type(self)
+        self._id = cls.count
+        cls.count += 1
+
+        self.payload : dict[str, Any] = []
+
+    def __getitem__(self, key:str):
+        return self.payload.get(key, None)
+    
+    def __setitem__(self, name:str, value:...):
+        if name == "id":
+            raise ValueError("Key `id` can not pass to tracker.")
+        self.payload[name] = value
+
+    @property
+    def id(self) -> int:
+        return self._id
+
+
+    def update(self, obj: "TrackingObject"):
         """
         Update the track state using a fresh detection vector.
 
@@ -147,32 +188,34 @@ class KalmanBoxTracker:
         remaining values (score, class, keypoints, etc.) are stored so that
         downstream consumers receive the most recent detector metadata.
         """
-        self.time_since_update = 0
-        self.history = []
-        self.hits += 1
-        self.hit_streak += 1
-        self.kf.update(convert_bbox_to_z(info[:4]))
-        self.info = info
+
+        self.class_id = obj.class_id
+        self.score = obj.score
+        self.bbox = obj.bbox
+        self.payload = obj.payload
+
+        self._time_since_update = 0
+        self._history = []
+        self._hits += 1
+        self._hit_streak += 1
+        self._kf.update(convert_bbox_to_z(self.bbox))
+
+
 
     def predict(self):
         """Advance the state vector one frame ahead."""
-        if((self.kf.x[6]+self.kf.x[2])<=0):
-            self.kf.x[6] *= 0.0
-        self.kf.predict()
-        self.age += 1
+        if((self._kf.x[6]+self._kf.x[2])<=0):
+            self._kf.x[6] *= 0.0
+        self._kf.predict()
+        self._age += 1
 
-        if(self.time_since_update>0):
-            self.hit_streak = 0
+        if(self._time_since_update>0):
+            self._hit_streak = 0
 
-        self.time_since_update += 1
-        self.history.append(convert_x_to_bbox(self.kf.x))
-        return self.history[-1]
+        self._time_since_update += 1
+        self._history.append(convert_x_to_bbox(self._kf.x))
+        return self._history[-1]
 
-    @property
-    def get_state(self):
-        """Return the current bounding box estimate as ``[x1, y1, x2, y2]``."""
-        return convert_x_to_bbox(self.kf.x)
-    
     @property
     def get_info(self):
         """
@@ -184,24 +227,9 @@ class KalmanBoxTracker:
             The concatenation of the predicted bbox ``[x1, y1, x2, y2]`` and
             the additional fields supplied by the detector (score, class, ...).
         """
-        bbox = convert_x_to_bbox(self.kf.x).reshape(-1)
-        return np.concatenate([bbox, self.info[4:]])
-    
-    @property
-    def get_id(self):
-        """
-        Return the tracking id.
+        bbox = convert_x_to_bbox(self._kf.x).reshape(-1)
+        return np.concatenate([bbox, self.bbox])
 
-        Returns
-        -------
-        int
-            The id of the tracker.
-        """
-        return self.id
-
-import lap
-import numba
-import numpy as np
 
 def linear_assignment(cost_matrix):
     """
@@ -279,7 +307,7 @@ def iou_batch_jit(bb_test, bb_gt):
 
 
 
-def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
+def assign(detections: list[TrackingObject], trackers: list[TrackingObject], iou_threshold:float = 0.3):
     """
     Assign detections to tracker predictions using an IOU threshold.
 
@@ -297,10 +325,17 @@ def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
     tuple
         ``(matches, unmatched_detections)`` with ``matches`` shaped ``[K, 2]``.
     """
-    if(len(trackers)==0):
-        return np.empty((0,2),dtype=int), np.arange(len(detections))
+    
+    bbox_detections = np.asarray([det.bbox] for det in detections)
+    bbox_trackers = np.asarray([trk.bbox] for trk in trackers)
+    iou_matrix = iou_batch(
+        bbox_detections, bbox_trackers)
+    
+    class_id_detections = np.asarray([det.class_id] for det in detections)
+    class_id_trackers = np.asarray([trk.class_id] for trk in trackers)
+    mask = class_id_detections == class_id_trackers # FIXME: mask generated by &
 
-    iou_matrix = iou_batch(detections, trackers)
+    iou_matrix = iou_matrix & mask
 
     if min(iou_matrix.shape) > 0:
         a = (iou_matrix > iou_threshold).astype(np.int32)
@@ -311,23 +346,25 @@ def associate_detections_to_trackers(detections,trackers,iou_threshold = 0.3):
     else:
         matched_indices = np.empty(shape=(0,2))
 
-    matched_detections = set(matched_indices[:, 0])
-    unmatched_detections = [idx for idx in range(len(detections)) if idx not in matched_detections]
+    matched_detections = detections[matched_indices]
+    unmatched_detections = [idx for idx in range(len(detections)) if idx not in matched_indices]
 
-    #filter out matched with low IOU
-    matches = []
-    for m in matched_indices:
-        if(iou_matrix[m[0], m[1]] < iou_threshold):
-            unmatched_detections.append(m[0])
-        else:
-            matches.append(m.reshape(1,2))
+    return matched_detections, unmatched_detections
 
-    if(len(matches)==0):
-        matches = np.empty((0,2),dtype=int)
-    else:
-        matches = np.concatenate(matches,axis=0)
+    # TODO: filter out matched with low IOU
+    # matches = []
+    # for m in matched_indices:
+    #     if(iou_matrix[m[0], m[1]] < iou_threshold):
+    #         unmatched_detections.append(m[0])
+    #     else:
+    #         matches.append(m.reshape(1,2))
 
-    return matches, np.array(unmatched_detections)
+    # if(len(matches)==0):
+    #     matches = np.empty((0,2),dtype=int)
+    # else:
+    #     matches = np.concatenate(matches,axis=0)
+
+    # return matches, np.array(unmatched_detections)
 
 
 class ByteTrack:
@@ -340,103 +377,41 @@ class ByteTrack:
         self.iou_thres = iou_thres
         self.conf_thres = conf_thres
         self.frame_count = 0
-        self.trackers:list[KalmanBoxTracker] = []
+        self.trackers: list[TrackingObject] = []
 
-    def update(self, dets=np.empty((0, 5)), payload=None):
+    def update(self, detections: list[TrackingObject]):
         """
         Update the tracker state for one frame.
 
-        Parameters
-        ----------
-        dets : np.ndarray, optional
-            Detection tensor ``[N, K]`` whose rows contain the bounding box,
-            confidence, class id, and any additional per-detection attributes.
-            All columns beyond the first four are preserved and propagated in
-            the track output so downstream consumers receive the detector info.
-
-        Returns
-        -------
-        tuple[list[int], list[np.ndarray]]
-            ``ids`` is the list of active track identifiers in the same order
-            as the rows of ``tracks``. ``tracks`` contains the Kalman-refined
-            bounding boxes concatenated with the detector payload (score, class,
-            keypoints, ...). An empty tracks array is returned when no track is
-            active, but the ``ids`` list is still provided (usually empty).
-
-        Notes
-        -----
-        The method predicts every tracker forward, associates high-confidence
-        detections first, uses low-confidence detections to recover unmatched
-        tracks, spawns new trackers from unmatched confident detections, and
-        finally removes trackers that have aged past ``max_age``. Track info
-        arrays always mirror the detector schema so consumers can trust column
-        ordering.
         """
         self.frame_count += 1
 
-        dets = np.asarray(dets, dtype=float)
-        if dets.ndim == 1:
-            dets = dets[None, :]
-
-        N = len(self.trackers)
-        trks = np.empty((N, 5), dtype=np.float32)
-        valid = np.ones(N, dtype=bool)
-
-        for i, tracker in enumerate(self.trackers):
-            pos = tracker.predict()[0]
-
-            if np.any(np.isnan(pos)):
-                valid[i] = False
-                continue
-
-            trks[i, :4] = pos
-            trks[i, 4] = 0.
-
-        trks = trks[valid]
-        for i in range(N-1, -1, -1):
-            if not valid[i]:
-                self.trackers.pop(i)
-
-        scores = dets[:, 4]
-        dets_high = dets[scores >= self.conf_thres, :]
-        dets_low = dets[scores < self.conf_thres, :]
-        boxes_high = dets_high[:, :4]
-        boxes_low = dets_low[:, :4]
-        tracker_predictions = trks[:, :4]
-
-        matched_high, unmatched_high = associate_detections_to_trackers(
-            boxes_high, tracker_predictions, self.iou_thres)
-
-        tracker_matched = np.zeros(len(self.trackers), dtype=bool)
-        for det_idx, trk_idx in matched_high:
-            tracker_matched[trk_idx] = True
-            self.trackers[trk_idx].update(dets_high[det_idx])
-
-        unmatched_tracker_idx = np.where(~tracker_matched)[0]
-        if len(unmatched_tracker_idx) > 0 and len(boxes_low) > 0:
-            secondary_predictions = tracker_predictions[unmatched_tracker_idx]
-            matched_low, _ = associate_detections_to_trackers(
-                boxes_low, secondary_predictions, self.iou_thres)
-            for det_idx, sub_idx in matched_low:
-                trk_idx = unmatched_tracker_idx[sub_idx]
-                tracker_matched[trk_idx] = True
-                self.trackers[trk_idx].update(dets_low[det_idx])
-
-        for idx in unmatched_high:
-            if len(boxes_high) == 0:
-                break
-            trk = KalmanBoxTracker(dets_high[idx])
-            self.trackers.append(trk)
-
-        ids = []
-        ret = []
-        idx = len(self.trackers)
-        for trk in reversed(self.trackers):
-            if (trk.time_since_update < 1) and (trk.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
-                ids.append(trk.get_id())
-                ret.append(trk.get_info().reshape(1, -1))
-            idx -= 1
-            if(trk.time_since_update > self.max_age):
+        for idx, trk in reversed(list(enumerate(self.trackers))):
+            bbox = trk.predict()
+            if np.any(np.isnan(bbox)):
                 self.trackers.pop(idx)
+            self.trackers[idx].bbox = bbox
 
-        return ids, ret
+        high_score_detections = []
+        low_score_detections = []
+        
+        for det in reversed(detections):
+            if det.score >= self.conf_thres:
+                high_score_detections.append(detections.pop())
+            else:
+                low_score_detections.append(detections.pop())
+
+        matched_high, unmatched_high = assign(
+            high_score_detections, self.trackers, self.iou_thres)
+
+        for idx, m in enumerate(matched_high):
+            self.trackers[idx].update(m)
+
+        if len(unmatched_high) > 0 and len(low_score_detections) > 0:
+            matched_low, _ = assign(
+                low_score_detections, self.trackers, self.iou_thres)
+            for idx, m in enumerate(matched_low):
+                self.trackers[idx].update(m)
+
+        self.trackers.extend(unmatched_high)
+        return self.trackers

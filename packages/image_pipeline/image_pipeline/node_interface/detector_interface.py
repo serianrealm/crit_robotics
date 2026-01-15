@@ -1,24 +1,15 @@
-"""OpenVINO-powered YOLO pipeline with ByteTrack post-processing."""
+"""Common ROS 2 node interfaces for detector."""
 
 import os
-from functools import partial
+from abc import abstractmethod, ABC
 
 import numpy as np
-import cv2
-
-from ..ops import end2end_fastnms, pose_estimate
-from ..node import PosePipelineNodeInterface
-from ..backend import OpenVinoBackend
-from ..tracking import ByteTrack
-
-
-"""Pose-aware image pipeline node that subscribes to camera topics."""
-
-import numpy as np
-from image_transport_py import ImageTransport
-from cv_bridge import CvBridge
+from rclpy.node import Node
+from rclpy.logging import RcutilsLogger
 from rclpy.qos import QoSProfile
-
+from ament_index_python import get_package_share_directory
+from cv_bridge import CvBridge
+from image_transport_py import ImageTransport
 from sensor_msgs.msg import (
     Image,
     CameraInfo
@@ -39,49 +30,92 @@ from vision_msgs.msg import (
     Detection2DArray
 )
 
-from ..pipe.node_interface import ImagePipelineNodeInterface
-from ..ops import pose_estimate
+from ..runtime.models import Yolov10PoseModel
+from ..solutions.pose_estimate import pose_estimate
 
-class End2endYolo(ImagePipelineNodeInterface):
+BIG_ARMOR_POINTS: list[tuple[float, float, float]] = []
+SMALL_ARMOR_POINTS: list[tuple[float, float, float]] = []
+BASE_POINTS: list[tuple[float, float, float]] = []
+
+CLASS_TO_POINTS = {
+    1: BIG_ARMOR_POINTS,
+    6: BIG_ARMOR_POINTS,
+    2: SMALL_ARMOR_POINTS,
+    4: SMALL_ARMOR_POINTS,
+    5: BASE_POINTS,
+}
+
+class DetectorNodeInterface(Node, ABC):
+    """Base node that declares parameters up-front and exposes helpers."""
+    node_name = "image_pipeline"
+
+    def __init__(self):
+        super().__init__(
+            node_name=self.node_name,
+            automatically_declare_parameters_from_overrides=True
+        )
+
+        it = ImageTransport(
+            node_name=self.node_name,
+            image_transport="raw"
+        )
+        
+        self.image_subs = [
+            it.subscribe_camera(base_topic=f"{topic_prefix}/image_raw",
+                                callback=self.callback) 
+            for topic_prefix in self.get_parameter("subscriptions").get_parameter_value()
+        ]
+    
+    @abstractmethod
+    def callback(*args, **kwargs):
+        raise NotImplementedError()
+
+    @property
+    def logger(self) -> RcutilsLogger:
+        return self.get_logger()
+
+class YoloPoseDetector(DetectorNodeInterface):
     """"""
 
     def __init__(self):
         super().__init__()
 
         self.br = CvBridge()
-        
-        self.detection_array_pub = self.create_publisher(
-            Detection2DArray,
-            "detection_array",
-            QoSProfile(10)
-        )
 
+        self.model = Yolov10PoseModel.from_pretrained("yolo/v10")
+        
+        self.vision_raw_pub = self.create_publisher(
+            Detection2DArray,
+            "vision/raw",
+            QoSProfile(
+                history=5
+            )
+            # TODO: finish QoS Profile
+        )
         
         model_name_or_path = self.get_parameter_or("model_name_or_path", "namespace/model")
-        if os.path.exists(model_name_or_path):
-            model_path = model_name_or_path
-        else:
-            model_path = os.path.join([self.get_package_share_directory(), model_name_or_path])
+        if os.path.exists(os.path.join(get_package_share_directory("image_pipeline"), model_name_or_path)):
+            model_name_or_path = os.path.join(get_package_share_directory("image_pipeline"), model_name_or_path)
 
-        self.model = AutoBackend.from_pretrained(
-            model_path
+        self.model = Yolov10PoseModel.from_pretrained(
+            model_name_or_path
         )
 
-    def predict(self, inputs, **kwargs):
-        prediction = self.model(inputs, **kwargs) # [H, W, C] -> [bs, max_det, bbox]
+    def callback(self, cimage:Image, cinfo:CameraInfo):
+        """Convert incoming image/camera info into detection messages."""
+        image = self.br.imgmsg_to_cv2(cimage, desired_encoding="bgr8")
+        
+        pixel_values = self.model.preprocess(image)
 
-        if isinstance(prediction, (list, tuple)):
-            prediction = prediction[0]
+        outputs = self.model(pixel_values)
 
-        outputs = end2end_fastnms(
-            prediction,
-            conf_thres=self.get_parameter_or("conf_thres", 0.25),
-            iou_thres=self.get_parameter_or("iou_thres", 0.45)
-        )
+        predictions = self.model.postprocess(outputs)
 
-        return outputs
+        poses = self.estimate_poses_from_predictions(predictions)
 
-    def estimate_poses_from_prediction(
+        self.publish_message_from_prediction(cinfo.header, predictions, poses)
+
+    def estimate_poses_from_predictions(
         self,
         prediction,
         cinfo,
@@ -108,8 +142,6 @@ class End2endYolo(ImagePipelineNodeInterface):
             if len(pred) < 14:
                 raise ValueError(f"Prediction length {len(pred)} < 14")
 
-            class_id = int(pred[5])
-
             keypoints = np.array(
                 pred[6:14],
                 dtype=np.float64
@@ -118,11 +150,14 @@ class End2endYolo(ImagePipelineNodeInterface):
             keypoints[:, 0] *= W
             keypoints[:, 1] *= H
 
+            class_id = int(pred[5])
+            object_points = np.asarray(CLASS_TO_POINTS.get(class_id, SMALL_ARMOR_POINTS), dtype=np.float32)
+
             position, orientation = pose_estimate(
-                keypoints=keypoints,
-                class_id=class_id,
-                camera_matrix=camera_matrix,
-                distortion_coefficients=distortion_coefficients,
+                keypoints,
+                object_points,
+                camera_matrix,
+                distortion_coefficients,
             )
 
             poses.append((position, orientation))
@@ -135,7 +170,7 @@ class End2endYolo(ImagePipelineNodeInterface):
         prediction,
         poses
     ):
-        self.detection_array_pub.publish(Detection2DArray(
+        self.vision_pub.publish(Detection2DArray(
             header=header,
             detections=[Detection2D(
                 header=header,
@@ -171,16 +206,3 @@ class End2endYolo(ImagePipelineNodeInterface):
                 )
             ) for pred, (pos, orient) in zip(prediction, poses)]
         ))
-        
-        
-
-    def callback(self, cimage:Image, cinfo:CameraInfo):
-        """Convert incoming image/camera info into detection messages."""
-        image = self.br.imgmsg_to_cv2(cimage, desired_encoding="bgr8")
-        
-        prediction = self.predict([image])
-
-        poses = self.estimate_poses_from_prediction(prediction)
-
-        header = cinfo.header
-        self.publish_message_from_prediction(header, prediction, poses)
