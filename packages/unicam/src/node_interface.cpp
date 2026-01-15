@@ -45,10 +45,10 @@ std::string deduce_encoding(const cv::Mat &image)
 cv::Mat shrink_resize_crop(const cv::Mat& image, const cv::Size& size)
 {
     /// NOTE: If got negative size, this can also work.
-    double scale_ratio = std::min(
-        std::min(
-            std::fabs(1.0 * image.rows / size.height),
-            std::fabs(1.0 * image.cols / size.width)
+    double scale_ratio = std::max(
+        std::max(
+            std::fabs(1.0 * size.height / image.rows),
+            std::fabs(1.0 * size.width / image.cols)
         ),
         1.0
     );
@@ -58,8 +58,8 @@ cv::Mat shrink_resize_crop(const cv::Mat& image, const cv::Size& size)
         image,
         resized,
         cv::Size(
-            std::round(scale_ratio * image.cols),
-            std::round(scale_ratio * image.rows)
+            std::round(image.cols / scale_ratio),
+            std::round(image.rows / scale_ratio)
         ),
         0., 0., cv::INTER_AREA);
 

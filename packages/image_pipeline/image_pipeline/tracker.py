@@ -2,7 +2,7 @@
 
 import rclpy
 
-from .node import SequentialTracker
+from .node_interface import SequentialTracker
 
 def main():
     rclpy.init()

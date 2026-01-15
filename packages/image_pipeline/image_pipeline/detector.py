@@ -2,7 +2,7 @@
 
 import rclpy
 
-from .node import End2endYolo
+from .node_interface import End2endYolo
 
 def main():
     rclpy.init()
