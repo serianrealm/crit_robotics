@@ -1,9 +1,0 @@
-subscriptions:
-  - topic: /control
-    type: rm_msgs/msg/Control
-    qos: default
-      
-publishers:
-  - topic: /state
-    type: rm_msgs/msg/State
-    qos: default

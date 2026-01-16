@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'udp_socket_python'
+package_name = 'udp_socket'
 
 setup(
     name=package_name,
