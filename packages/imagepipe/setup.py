@@ -24,7 +24,7 @@ setup(
     maintainer='root',
     maintainer_email='serianrealm@gmail.com',
     description='TODO: Package description',
-    license='TODO: License declaration',
+    license='Apache-2.0',
     extras_require={
     },
     entry_points={

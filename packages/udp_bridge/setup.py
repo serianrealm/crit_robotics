@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'udp_socket'
+package_name = 'udp_bridge'
 
 setup(
     name=package_name,
@@ -18,12 +18,10 @@ setup(
     description='TODO: Package description',
     license='Apache-2.0',
     extras_require={
-        'test': [
-            'pytest',
-        ],
     },
     entry_points={
         'console_scripts': [
+            'udp_bridge = udp_bridge.udp_bridge:main'
         ],
     },
 )
