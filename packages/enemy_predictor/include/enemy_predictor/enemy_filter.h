@@ -26,7 +26,7 @@ public:
     Mxz Pxz, K;
     Vz Zp;
     
-    int sample_num_;
+    int sample_num_ = 2 * STATE_NUM;
     std::vector<double> weights_;
     std::vector<Vx> samples_;
     std::vector<Vx> sample_X;
@@ -34,8 +34,12 @@ public:
     std::vector<double> initial_radius{0.25, 0.25};
     //double radius;
     
+    double last_timestamp_tmp; //暂存一下last_timestamp_，同一帧 > 1个armor时可以都用来更新ckf
     double last_timestamp_;
     bool is_initialized_;
+
+    int yaw_round_ = 0;           // 记录yaw转过的圈数
+    double last_yaw = 0.0; // 上一次的状态yaw值
 
     // 机器人特定参数
     double angle_dis_;
@@ -65,28 +69,36 @@ public:
                 double _timestamp, int _phase_id);
     
     // 预测特定装甲板位置
-    Eigen::Vector3d predictArmorPosition(double z, int phase_id, double dt, double timestamp);
-    Eigen::Vector3d predictCenterPosition(double z, double dt, double timestamp);
+    Eigen::Vector3d predictArmorPosition(double z, int phase_id, double dt);
+    Eigen::Vector3d predictCenterPosition(double z, double dt);
     // 初始化CKF
     void initializeCKF();
     
     // CKF核心算法
     void SRCR_sampling(const Vx& x, const Mxx& P);
-    void predict(double timestamp);
+    void predict(double dt);
     void measure(const Vz& z, int phase_id);
     void correct(const Vz& z);
     
     // 系统模型和观测模型
-    Vx f(const Vx& x, double timestamp) const;
+    Vx f(const Vx& x, double dt) const;
     Vz h(const Vx& x, int phase_id) const;
     
     // 噪声计算
     void calcQ(double dt);
     void calcR(const Vz& z);
+
+    // 将角度标准化到[-π, π]范围内
+    double normalizeAngle(double angle) const{
+        angle = std::fmod(angle + M_PI, 2 * M_PI);
+        if (angle < 0) {
+            angle += 2 * M_PI;
+        }
+        return angle - M_PI;
+    }
     
     // 工具函数
     double get_average(const std::vector<double>& vec) const;
     bool is_initialized() const { return is_initialized_; }
-
-};
+};  
 #endif

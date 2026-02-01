@@ -73,6 +73,7 @@ struct autoaim_recv_from_port_data_t{
     uint8_t priority_level_arr[8];
     // 切换相机
     uint8_t switch_cam;
+    uint16_t shoot_num;
 };
 
 struct autolob_content{

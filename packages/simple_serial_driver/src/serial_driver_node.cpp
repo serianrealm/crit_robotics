@@ -111,6 +111,7 @@ SerialDriverNode::~SerialDriverNode(){
 
 void SerialDriverNode::readPortCallback(uint8_t* buffer){
     // 根据不同id, 调用不同callback
+    
     if(buffer[1] == 0x03){
         autoaim_recv_from_port_data_t* rmsg = (autoaim_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
         autoaimReadPortCallback(rmsg);
@@ -179,9 +180,11 @@ void SerialDriverNode::autoaimReadPortCallback(const autoaim_recv_from_port_data
     robot_msg.priority_level_arr.assign(
         _data->priority_level_arr,
         _data->priority_level_arr + sizeof(_data->priority_level_arr) / sizeof(uint8_t));
+    robot_msg.shoot_num = _data-> shoot_num;
     robot_msg.imu.roll = _data->roll;
     robot_msg.imu.pitch = _data->pitch;
     robot_msg.imu.yaw = _data->yaw;
+
     // robotpub_low_freq(robot_msg);
     robot_pub->publish(robot_msg);
 }

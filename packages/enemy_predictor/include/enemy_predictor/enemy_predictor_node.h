@@ -204,7 +204,6 @@ public:
     std::vector<ArmorTracker> armor_trackers_;
     std::array<Enemy, MAX_ENEMIES> enemies_;
     
-    
     Ballistic::BallisticResult ball_res;
     Ballistic bac;
     Ballistic::BallisticParams create_ballistic_params();
@@ -273,7 +272,8 @@ private:
     void findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& tracker,  std::vector<ArmorTracker*> active_armors_this_enemy);
     int estimatePhaseFromPosition(const Enemy& enemy, const ArmorTracker& tracker);
     // 决策 + 弹道
-    std::pair<Ballistic::BallisticResult, Eigen::Vector3d> calc_ballistic_(double delay, rclcpp::Time timestamp_det, ArmorTracker& tracker, double timestamp, std::function<Eigen::Vector3d(ArmorTracker&, double, double)> _predict_func);
+    std::pair<Ballistic::BallisticResult, Eigen::Vector3d> calc_ballistic_one(double delay, rclcpp::Time timestamp_det, ArmorTracker& tracker, double timestamp, std::function<Eigen::Vector3d(ArmorTracker&, double, double)> _predict_func);
+    std::pair<Ballistic::BallisticResult, Eigen::Vector3d> calc_ballistic_second(double delay, rclcpp::Time timestamp_det, double timestamp, int phase_id, Enemy& enemy, std::function<Eigen::Vector3d(Enemy&, double, int)> _predict_func);
     void getCommand(Enemy& enemy, double timestamp, rclcpp::Time timestamp_det, std::vector<int>& active_armor_idx);
     int ChooseMode(Enemy &enemy, double timestamp);
     // tool

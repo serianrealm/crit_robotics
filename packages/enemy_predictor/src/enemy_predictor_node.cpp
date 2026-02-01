@@ -69,6 +69,18 @@ EnemyPredictorNode::EnemyPredictorNode(const rclcpp::NodeOptions& options)
     auto pe = this->get_parameter("enemy_ckf.Pe").as_double_array();
     EnemyCKF::config_.config_Pe = Eigen::Map<Eigen::MatrixXd>(pe.data(),8,8);
 
+    //this->declare_parameter<std::vector<double>>("enemy_ckf.Pe",
+    //                                         std::vector<double>{
+    //                                            1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    //                                            0.0, 1.0, 0.0, 0.0, 0.0, 0.0,
+    //                                            0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+    //                                            0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
+    //                                            0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+    //                                            0.0, 0.0, 0.0, 0.0, 0.0, 1.0
+    //                                         });
+    //auto pe = this->get_parameter("enemy_ckf.Pe").as_double_array();
+    //EnemyCKF::config_.config_Pe = Eigen::Map<Eigen::MatrixXd>(pe.data(), 6, 6);
+
     this->declare_parameter<double>("enemy_ckf.Q2_X", 84.0);
     EnemyCKF::config_.Q2_X = this->get_parameter("enemy_ckf.Q2_X").as_double();
 
@@ -90,7 +102,7 @@ EnemyPredictorNode::EnemyPredictorNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("high_spd_rotate_thresh", 0.30);
     cmd.high_spd_rotate_thresh = this->get_parameter("high_spd_rotate_thresh").as_double();
 
-    this->declare_parameter<double>("yaw_thresh", 0.30);
+    this->declare_parameter<double>("yaw_thresh", 0.01);
     cmd.yaw_thresh = this->get_parameter("yaw_thresh").as_double();
 
     this->declare_parameter<double>("response_delay", 0.30);
@@ -219,7 +231,7 @@ Ballistic::BallisticParams EnemyPredictorNode::create_ballistic_params() {
         
         // 设置默认的偏移量
         params.stored_yaw_offset = std::vector<double>{0.0, 0.0, 0.0, 0.0, 0.0};
-        params.stored_pitch_offset = std::vector<double>{0.0, 0.0, -0.4, -0.5, -0.8};
+        params.stored_pitch_offset = std::vector<double>{0.0, 0.0, -0.0, 0.0, -0.1};
      
         params.yaw2gun_offset = sqrt(params.pitch2yaw_t[0] * params.pitch2yaw_t[0] + params.pitch2yaw_t[1] * params.pitch2yaw_t[1]);    
         RCLCPP_INFO(this->get_logger(), "params.yaw2gun_offset = %lf",params.yaw2gun_offset);
@@ -288,7 +300,6 @@ void EnemyPredictorNode::detection_callback(const vision_msgs::msg::Detection2DA
             }else{
                 object_points = small_object_points;
             }
-           //updateArmorDetection(object_points, det, time_image);
         }
         if(valid_det){
             updateArmorDetection(object_points, det, time_image);
@@ -315,11 +326,11 @@ void EnemyPredictorNode::detection_callback(const vision_msgs::msg::Detection2DA
         control_msg.flag = 1;
         control_msg.vision_follow_id = enemies_[cmd.target_enemy_idx].class_id;
         if(cmd.cmd_mode == 0){
-           control_msg.rate = 18; // adjust it later!!!
+           control_msg.rate = 10; // adjust it later!!!
            control_msg.one_shot_num = 1;
         }
         else if(cmd.cmd_mode == 1){
-           control_msg.rate = 18;
+           control_msg.rate = 10;
            control_msg.one_shot_num = 1;
         }
         //bool success = yaw_planner.setTargetYaw(cmd.cmd_yaw, imu_.current_yaw);
@@ -358,6 +369,7 @@ void EnemyPredictorNode::robot_callback(const rm_msgs::msg::RmRobot::SharedPtr r
     params_.right_press = false; // For Debug
     ImuData data;
     data.timestamp = this->now();
+    //data.timestamp = robot_msg->header.stamp;
     data.current_yaw = robot_msg->imu.yaw;
     yaw_now = robot_msg->imu.yaw;
     imu_buffer_.push_back(data);

@@ -68,10 +68,6 @@ void EnemyPredictorNode::updateArmorDetection(std::vector<cv::Point3f> object_po
 
     cv::projectPoints(object_points, rvec, tvec, 
                        visualize_.camera_matrix, visualize_.dist_coeffs, reprojected_points);
-    //if (reprojected_points.size() >= 4) {
-    //     cv::rectangle(visualize_.armor_img, reprojected_points[0], reprojected_points[2], 
-    //                   cv::Scalar(255, 0, 0), 2);
-    //}
 
     const cv::Point2f& p0 = reprojected_points[0];
     const cv::Point2f& p1 = reprojected_points[1];
@@ -191,7 +187,7 @@ void EnemyPredictorNode::updateEnemy(Enemy& enemy, double timestamp, std::vector
     }
     for(ArmorTracker* tracker : active_armors_this_enemy){
         findBestPhaseForEnemy(enemy, *tracker, active_armors_this_enemy);
-        RCLCPP_INFO(get_logger(), "Armor(%d), Phase_id = %d, area_2d = %lf", tracker->tracker_idx, tracker->phase_id, tracker->area_2d);
+        //RCLCPP_INFO(get_logger(), "Armor(%d), Phase_id = %d, area_2d = %lf", tracker->tracker_idx, tracker->phase_id, tracker->area_2d);
     }
     
     //calculateEnemyCenterAndRadius(enemy, timestamp, active_armors_this_enemy);
@@ -204,9 +200,12 @@ void EnemyPredictorNode::updateEnemy(Enemy& enemy, double timestamp, std::vector
         enemy.enemy_ckf.reset(active_armors_this_enemy[0] -> position, active_armors_this_enemy[0] -> yaw, active_armors_this_enemy[0] -> phase_id, timestamp);
     }
     else{
+        double sum_z = 0.0;
         for(ArmorTracker* tracker : active_armors_this_enemy){
            enemy.enemy_ckf.update(tracker->position, tracker->yaw, timestamp, tracker->phase_id);
+           sum_z += tracker -> position(2);
         }
+        enemy.center(2) = sum_z / active_armors_this_enemy.size();
     }
     
 }
@@ -513,7 +512,7 @@ void EnemyPredictorNode::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& track
         tracker.phase_id = 0;
         enemy.yaw = tracker.yaw;
         enemy.is_valid = true; // 每个enemy有了第一个armor时，第一个armor phase_id = 0, enemy.is_valid = true
-        RCLCPP_INFO(get_logger(), "This enemy has its first armor, Give Phase_id %d",tracker.phase_id);
+        RCLCPP_INFO(get_logger(), "This enemy (%d) has its first armor, Give Phase_id %d",enemy.class_id, tracker.phase_id);
         return;
     }
     //std::vector<double> scores = {0.0, 0.0, 0.0, 0.0};
@@ -542,8 +541,8 @@ void EnemyPredictorNode::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& track
     }
     if(!by_relative){
         
-        RCLCPP_INFO(get_logger(), "enemy.enemy_ckf.Xe(4) = %lf", enemy.enemy_ckf.Xe(4));
-        RCLCPP_INFO(get_logger(), "tracker.yaw = %lf", tracker.yaw);
+        //RCLCPP_INFO(get_logger(), "enemy.enemy_ckf.Xe(4) = %lf", enemy.enemy_ckf.Xe(4));
+        //RCLCPP_INFO(get_logger(), "tracker.yaw = %lf", tracker.yaw);
         double angle_diff = normalize_angle(tracker.yaw - enemy.enemy_ckf.Xe(4));
 
         if(angle_diff >= -M_PI/4 && angle_diff < M_PI/4){
@@ -558,7 +557,7 @@ void EnemyPredictorNode::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& track
         else{
             candidate_phase = 2; // 后方
         }
-        RCLCPP_INFO(get_logger(), "Don't Have Useful relative armor!!!!!! candidate_phase = %d", candidate_phase);
+        //RCLCPP_INFO(get_logger(), "Don't Have Useful relative armor!!!!!! candidate_phase = %d", candidate_phase);
 
     }
     if(tracker.phase_id != -1 && tracker.phase_id != candidate_phase){
@@ -702,12 +701,20 @@ int EnemyPredictorNode::ChooseMode(Enemy &enemy, double timestamp){
 void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time timestamp_image, std::vector<int>& active_armor_idx){
     
     cmd.cmd_mode = ChooseMode(enemy, timestamp);
+
+    //cmd.cmd_mode = 0;  // Hack : 为什么ckf能预测了，命中率反而下降了？？？？？？？
+
+    RCLCPP_INFO(get_logger(), "CKF: Xe(5) = %lf", enemy.enemy_ckf.Xe(5));
     RCLCPP_INFO(get_logger(),"MODE :%d",cmd.cmd_mode);
+
     cmd.target_enemy_idx = enemy.class_id -1;
     cmd.last_target_enemy_idx = cmd.target_enemy_idx;
-    //RCLCPP_INFO(get_logger(),"cmd.last_target_enemy_idx:%d",cmd.last_target_enemy_idx);
+    RCLCPP_INFO(get_logger(),"cmd.last_target_enemy_idx:%d",cmd.last_target_enemy_idx);
     auto predict_func_double = [this, &enemy](ArmorTracker& tracker, double time_offset, double timestamp) -> Eigen::Vector3d{
         return FilterManage(enemy, time_offset, tracker, timestamp);
+    };
+    auto predict_func_ckf = [this](Enemy& enemy_tmp, double time_offset, int phase_id) -> Eigen::Vector3d{
+        return enemy_tmp.enemy_ckf.predictArmorPosition(enemy_tmp.center(2), phase_id, time_offset);
     };
     std::vector<ArmorTracker*> active_trackers;
 
@@ -719,33 +726,53 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
     if(cmd.cmd_mode == 1){
         
         Eigen::Vector3d armor_center_pre = Eigen::Vector3d(0, 0, 0);
+        Eigen::Vector3d armor_xyyaw_pre = Eigen::Vector3d(0, 0, 0);
         std::vector<double> yaws(4);
         //use enemy.center or enemy.center_pre ???
         //一直瞄准yaw近似车体中心的位置，but pitch不等于整车中心，当预测某一装甲板即将旋转到该直线时给发弹指令
         
-        for(int i = 0; i < active_trackers.size(); i++){
-           auto [ball_res, p] = calc_ballistic_((params_.response_delay + params_.shoot_delay), timestamp_image, *active_trackers[i], timestamp, predict_func_double);
+        for(int i = 0; i < 4; i++){
+
+           auto [ball_res, p] = calc_ballistic_second((params_.response_delay + params_.shoot_delay), timestamp_image, timestamp, i, enemy, predict_func_ckf);
            
-           Eigen::Vector3d enemy_center_pre = enemy.enemy_ckf.predictCenterPosition(enemy.center(2), ball_res.t, timestamp);
+           Eigen::Vector3d enemy_center_pre = enemy.enemy_ckf.predictCenterPosition(enemy.center(2), ball_res.t + params_.response_delay + params_.shoot_delay);
            double enemy_yaw_xy = std::atan2(enemy_center_pre[1], enemy_center_pre[0]); 
 
-           armor_center_pre = FilterManage(enemy, ball_res.t, *active_trackers[i], timestamp);
-
-           yaws[i] = std::atan2(armor_center_pre[1], armor_center_pre[0]);
+           //armor_center_pre = FilterManage(enemy, ball_res.t + params_.response_delay + params_.shoot_delay, *active_trackers[i], timestamp);
+           armor_xyyaw_pre = enemy.enemy_ckf.predictArmorPosition(enemy.center(2), i, ball_res.t + params_.response_delay + params_.shoot_delay); 
            
-           if (std::abs(yaws[i] - enemy_yaw_xy) < cmd.yaw_thresh){
-               cmd.aim_center = armor_center_pre; 
-               cmd.cmd_pitch = ball_res.pitch;
-               cmd.cmd_yaw = ball_res.yaw;
-               RCLCPP_INFO(this->get_logger(), 
-                           "Firing at phase %d: pitch=%.3f°, yaw=%.3f°, aim=(%.3f,%.3f,%.3f)",
-                           i, cmd.cmd_pitch, cmd.cmd_yaw,
-                           cmd.aim_center.x(), cmd.aim_center.y(), cmd.aim_center.z());
-               break; 
+           armor_center_pre = Eigen::Vector3d(armor_xyyaw_pre(0), armor_xyyaw_pre(1), enemy.center(2));
+           yaws[i] = std::atan2(armor_center_pre[1], armor_center_pre[0]);
+
+           cv::putText(visualize_.armor_img, 
+                            cv::format("W = %.2f", enemy.enemy_ckf.Xe(5)),  // 格式化文本
+                            cv::Point(50, 100),              // 位置
+                            cv::FONT_HERSHEY_SIMPLEX,        // 字体
+                            1.0,                             // 大小
+                            cv::Scalar(0, 0, 255),           // 颜色
+                            2);                              // 粗细
+           
+            if (std::abs(yaws[i] - enemy_yaw_xy) < cmd.yaw_thresh){
+                //cmd.aim_center = armor_center_pre; 
+                cmd.cmd_pitch = ball_res.pitch;
+                cmd.cmd_yaw = ball_res.yaw;
+                //RCLCPP_INFO(this->get_logger(), 
+                //            "Firing at phase %d: pitch=%.3f°, yaw=%.3f°, aim=(%.3f,%.3f,%.3f)",
+                //            i, cmd.cmd_pitch, cmd.cmd_yaw,
+                //            cmd.aim_center.x(), cmd.aim_center.y(), cmd.aim_center.z());
+                visualizeAimCenter(armor_center_pre, cv::Scalar(0, 0, 255));
+                break; 
             }
         }
     }
     else if(cmd.cmd_mode == 0){
+        cv::putText(visualize_.armor_img, 
+                            cv::format("W = %.2f", enemy.enemy_ckf.Xe(5)),  // 格式化文本
+                            cv::Point(50, 100),              // 位置
+                            cv::FONT_HERSHEY_SIMPLEX,        // 字体
+                            1.0,                             // 大小
+                            cv::Scalar(0, 255, 255),         // 颜色
+                            2);                              // 粗细
         if(active_trackers.size() == 0){
             RCLCPP_WARN(this->get_logger(), "No active trackers found");
             return;
@@ -754,7 +781,7 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
             
             //如果没有用同时出现的两个armor计算过radius,那么不用整车ckf,直接使用ekf.update/predict
             RCLCPP_INFO(get_logger(),"To Calculate ballistic");
-            auto [ball_res, p] = calc_ballistic_(
+            auto [ball_res, p] = calc_ballistic_one(
                 (params_.response_delay + params_.shoot_delay), 
                 timestamp_image, 
                 *active_trackers[0],  
@@ -772,7 +799,7 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
             double pitch_need = 0.0;
             
             for (ArmorTracker* tracker : active_trackers) {
-                auto [ball_res, p] = calc_ballistic_(
+                auto [ball_res, p] = calc_ballistic_one(
                     (params_.response_delay + params_.shoot_delay), 
                     timestamp_image, 
                     *tracker, 
@@ -795,7 +822,7 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
         }
     }
 }
-std::pair<Ballistic::BallisticResult, Eigen::Vector3d> EnemyPredictorNode::calc_ballistic_
+std::pair<Ballistic::BallisticResult, Eigen::Vector3d> EnemyPredictorNode::calc_ballistic_one
             (double delay, rclcpp::Time timestamp_image, ArmorTracker& tracker, double timestamp,
                 std::function<Eigen::Vector3d(ArmorTracker&, double, double)> _predict_func)
 {
@@ -835,23 +862,65 @@ std::pair<Ballistic::BallisticResult, Eigen::Vector3d> EnemyPredictorNode::calc_
     //RCLCPP_DEBUG(get_logger(), "calc_ballistic: predict_pos_odom: %f %f %f", predict_pos_odom(0), predict_pos_odom(1), predict_pos_odom(2));
     return {ball_res, predict_pos_odom};
 }
+std::pair<Ballistic::BallisticResult, Eigen::Vector3d> EnemyPredictorNode::calc_ballistic_second
+            (double delay, rclcpp::Time timestamp_image, double timestamp, int phase_id, Enemy& enemy,
+                std::function<Eigen::Vector3d(Enemy&, double, int)> _predict_func)
+{
+
+    Ballistic::BallisticResult ball_res;
+    Eigen::Vector3d predict_pos_odom;
+    Eigen::Isometry3d odom2gimbal_transform = getTrans("odom", "gimbal", timestamp_image);
+    double t_fly = 0.0;  // 飞行时间（迭代求解）
+
+    rclcpp::Time tick = this->now();
+
+    for (int i = 0; i < 6; ++i) {
+        rclcpp::Time tock = this->now();
+
+        rclcpp::Duration elapsed = tock - tick;
+        
+        double latency = delay + elapsed.seconds();
+
+        double code_dt = tock.seconds() - timestamp_image.seconds();
+        //RCLCPP_INFO(this->get_logger(), "latency time: %.6f", latency);
+        predict_pos_odom = _predict_func(enemy, t_fly + latency + code_dt, phase_id);
+    } 
+    ball_res = bac.final_ballistic(odom2gimbal_transform, predict_pos_odom);
+
+    if (ball_res.fail) {
+        RCLCPP_WARN(get_logger(), "[calc Ballistic] too far to hit it\n");
+        return {ball_res, predict_pos_odom};
+    }
+    t_fly = ball_res.t;
+
+    // 考虑自身z的变化
+    //Eigen::Vector3d z_vec = Eigen::Vector3d::Zero();
+    // address it later!!!!!!!!!!!!!!!!!!!
+    //z_vec << 0, 0, cmd.robot.z_velocity * (params_.shoot_delay + t_fly);
+
+    //ball_res = bac.final_ballistic(odom2gimbal_transform, predict_pos_odom - z_vec);
+    //RCLCPP_DEBUG(get_logger(), "calc_ballistic: predict_pos_odom: %f %f %f", predict_pos_odom(0), predict_pos_odom(1), predict_pos_odom(2));
+    return {ball_res, predict_pos_odom};
+}
+
 Eigen::Vector3d EnemyPredictorNode::FilterManage(Enemy &enemy, double dt, ArmorTracker& tracker, double timestamp){
     
     Eigen::Vector3d xyyaw_pre_ekf = tracker.ekf.predict_position(dt);
     ZEKF::Vz z_pre = tracker.zekf.predict_position(dt);              // z的处理后面再调，用z_ekf or 均值滤波
     Eigen::Vector3d xyz_ekf_pre = Eigen::Vector3d(xyyaw_pre_ekf[0], xyyaw_pre_ekf[1], z_pre[0]);
-    //RCLCPP_INFO(get_logger(), "xyz_ekf_pre : %lf, %lf, %lf",xyz_ekf_pre(0),xyz_ekf_pre(1),xyz_ekf_pre(2));
+    
     visualizeAimCenter(xyz_ekf_pre, cv::Scalar(0, 255, 0));
     //if(!enemy.radius_cal){
     //   return xyz_ekf_pre;
     //}
-    Eigen::Vector3d xyz_pre_ckf = enemy.enemy_ckf.predictArmorPosition(enemy.center(2), tracker.phase_id, dt, timestamp);
-    //RCLCPP_INFO(get_logger(), "xyz_pre_ckf : %lf, %lf, %lf",xyz_pre_ckf(0),xyz_pre_ckf(1),xyz_pre_ckf(2));
+    Eigen::Vector3d xyz_pre_ckf = enemy.enemy_ckf.predictArmorPosition(enemy.center(2), tracker.phase_id, dt);
+   
     Eigen::Vector3d enemy_xyz = Eigen::Vector3d(enemy.enemy_ckf.Xe(0),enemy.enemy_ckf.Xe(2), z_pre[0]);
-    //RCLCPP_INFO(get_logger(), "enemy_center_ckf : %lf, %lf, %lf",enemy_xyz(0),enemy_xyz(1),enemy_xyz(2));
+
     for(int i = 0; i < 8; i++){
-        RCLCPP_INFO(get_logger(), "Enemy_CKF.Xe(%d) = %lf", i, enemy.enemy_ckf.Xe(i));
+        RCLCPP_INFO(get_logger(), "CKF: Xe(%d) = %lf", i, enemy.enemy_ckf.Xe(i));
     }
+   
     visualizeAimCenter(xyz_pre_ckf, cv::Scalar(255, 0, 0));
     visualizeAimCenter(enemy_xyz, cv::Scalar(0, 255, 255));   // For DEBUG
     
@@ -881,8 +950,8 @@ Eigen::Vector3d EnemyPredictorNode::FilterManage(Enemy &enemy, double dt, ArmorT
     double w_ckf = exp_value / denominator;
     
     Eigen::Vector3d fusion_pre = w_ekf * xyz_ekf_pre + w_ckf * xyz_pre_ckf;
-    //RCLCPP_INFO(get_logger(), "fusion_pre : %lf, %lf, %lf",fusion_pre(0),fusion_pre(1),fusion_pre(2));
-    visualizeAimCenter(fusion_pre, cv::Scalar(0, 0, 255));
+    
+    //visualizeAimCenter(fusion_pre, cv::Scalar(0, 0, 255));
 
     // =================== 可视化tracker当前位置（紫色小球） ===================
     enemy_markers_.markers.clear();
@@ -1036,35 +1105,35 @@ Eigen::Vector3d EnemyPredictorNode::FilterManage(Enemy &enemy, double dt, ArmorT
     ckf_armor_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
     enemy_markers_.markers.push_back(ckf_armor_marker);
 
-    visualization_msgs::msg::Marker fusion_marker;
-    fusion_marker.header.frame_id = "odom";
-    fusion_marker.header.stamp = this->now();
-    fusion_marker.ns = "fusion_results";
-    fusion_marker.id = enemy.class_id * 100 + 4;  // 新的ID，确保不冲突
-    
-    fusion_marker.type = visualization_msgs::msg::Marker::SPHERE;
-    fusion_marker.action = visualization_msgs::msg::Marker::ADD;
-    
-    fusion_marker.pose.position.x = fusion_pre.x();
-    fusion_marker.pose.position.y = fusion_pre.y();
-    fusion_marker.pose.position.z = fusion_pre.z();
-    fusion_marker.pose.orientation.w = 1.0;
-    
-    // 设置稍大的尺寸以突出显示融合结果
-    fusion_marker.scale.x = 0.07;
-    fusion_marker.scale.y = 0.07;
-    fusion_marker.scale.z = 0.07;
-    
-    // 设置颜色：红色表示融合结果
-    fusion_marker.color.r = 1.0;  // 红色
-    fusion_marker.color.g = 0.0;
-    fusion_marker.color.b = 0.0;
-    fusion_marker.color.a = 1.0;  // 不透明度设为1.0，使其更显眼
-    
-    fusion_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
-    enemy_markers_.markers.push_back(fusion_marker);
+    //visualization_msgs::msg::Marker fusion_marker;
+    //fusion_marker.header.frame_id = "odom";
+    //fusion_marker.header.stamp = this->now();
+    //fusion_marker.ns = "fusion_results";
+    //fusion_marker.id = enemy.class_id * 100 + 4;  // 新的ID，确保不冲突
+    //
+    //fusion_marker.type = visualization_msgs::msg::Marker::SPHERE;
+    //fusion_marker.action = visualization_msgs::msg::Marker::ADD;
+    //
+    //fusion_marker.pose.position.x = fusion_pre.x();
+    //fusion_marker.pose.position.y = fusion_pre.y();
+    //fusion_marker.pose.position.z = fusion_pre.z();
+    //fusion_marker.pose.orientation.w = 1.0;
+    //
+    //// 设置稍大的尺寸以突出显示融合结果
+    //fusion_marker.scale.x = 0.07;
+    //fusion_marker.scale.y = 0.07;
+    //fusion_marker.scale.z = 0.07;
+    //
+    //// 设置颜色：红色表示融合结果
+    //fusion_marker.color.r = 1.0;  // 红色
+    //fusion_marker.color.g = 0.0;
+    //fusion_marker.color.b = 0.0;
+    //fusion_marker.color.a = 1.0;  // 不透明度设为1.0，使其更显眼
+    //
+    //fusion_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+    //enemy_markers_.markers.push_back(fusion_marker);
    
-    return fusion_pre;
+    return xyz_pre_ckf;
 
 }
 //--------------------------------------------TOOL----------------------------------------------------------------
