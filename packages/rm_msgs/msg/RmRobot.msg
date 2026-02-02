@@ -15,4 +15,4 @@ uint8[] priority_level_arr
 #优先等级： 若同时出现多个可击打目标（如画面中出现多个强制目标，或者未指定强制目标时出现多个普通目标），则选取其中优先级高的
 bool right_press  #按下右键
 bool switch_cam   #切换相机
-uint16 shoot_num  #发弹数量，用于调试时计算命中率
+#uint16 shoot_num  #发弹数量，用于调试时计算命中率

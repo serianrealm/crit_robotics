@@ -71,7 +71,7 @@ class ArmorXYYAWEKF {
         Vz config_R;  // 观测噪声
         Vx config_P;
     };
-    Vx Xe;          // [x, y, z, vx, vy, yaw, omega]
+    Vx Xe;          // [x, y, yaw, vx, vy, omega]
     Mxx P;          // 状态协方差
     Mxx Q;          // 过程噪声协方差
     Mzz R;          // 观测噪声协方差

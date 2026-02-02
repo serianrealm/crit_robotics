@@ -22,7 +22,7 @@
 
 #include <simple_serial_driver/serial_protocol.h>
 #include <simple_serial_driver/crc.h>
-
+#include <rm_msgs/msg/pc_common.hpp>
 #include <serial/serial.h>
 
 #include <memory>
@@ -57,6 +57,7 @@ public:
 
     //ros topic callback
     void readPortCallback(uint8_t* buffer);
+    void pcCommonReadPortCallback(uint8_t* _data); // 测试数据
     void autoaimReadPortCallback(const autoaim_recv_from_port_data_t* _data);
     void autolonReadPortCallback(const autolob_recv_from_port_data_t* _data){
         RCLCPP_ERROR(this->get_logger(), "recv autolob");
@@ -113,6 +114,8 @@ private:
 
     // ros communication
     rclcpp::Publisher<rm_msgs::msg::RmRobot>::SharedPtr robot_pub;
+
+    rclcpp::Publisher<rm_msgs::msg::PcCommon>::SharedPtr pc_common_pub; // 测试数据发布
 
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_pub;
     

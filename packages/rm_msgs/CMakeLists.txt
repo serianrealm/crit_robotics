@@ -15,6 +15,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RmImu.msg"
   "msg/RmRobot.msg"
   "msg/State.msg"
+  "msg/PcCommon.msg"
   DEPENDENCIES
   std_msgs
   geometry_msgs

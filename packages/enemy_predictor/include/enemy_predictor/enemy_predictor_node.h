@@ -39,7 +39,10 @@ public:
         double current_yaw = 0.0;
         rclcpp::Time timestamp;
     }imu_;
-    
+    struct TF{
+        Eigen::Isometry3d odom_to_gimbal;
+        Eigen::Isometry3d camara_to_odom;
+    }tf_;
     struct Detection {
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
         Eigen::Vector3d position;
@@ -166,6 +169,7 @@ public:
         int target_enemy_idx = -1;
         bool right_press = false;
         int cmd_mode; //  0 -> 平动 , 1 -> 小陀螺
+        int last_armor_idx = -1;
     }cmd;
     struct EnemyPredictorNodeParams{
         std::string detection_name;

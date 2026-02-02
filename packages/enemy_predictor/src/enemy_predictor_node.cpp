@@ -263,6 +263,9 @@ void EnemyPredictorNode::detection_callback(const vision_msgs::msg::Detection2DA
     double timestamp = time_det.seconds();
     const auto& detections = detection_msg->detections;
     time_image = detection_msg-> header.stamp;
+
+    tf_.camara_to_odom = getTrans("camera_optical_frame", "odom", time_image);
+    tf_.odom_to_gimbal =  getTrans("odom", "gimbal", time_image);
     
     cmd.cmd_mode = -1;
     for(Enemy& enemy : enemies_){

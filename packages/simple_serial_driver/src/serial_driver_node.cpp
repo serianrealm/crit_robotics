@@ -97,6 +97,9 @@ SerialDriverNode::SerialDriverNode(const rclcpp::NodeOptions& _options):Node("si
     joint_state_pub =
         create_publisher<sensor_msgs::msg::JointState>("joint_states", rclcpp::SensorDataQoS());
 
+    // PcCommon publisher 测试数据发布
+    pc_common_pub = create_publisher<rm_msgs::msg::PcCommon>(params_.robot_name + "_pc_common", rclcpp::SensorDataQoS());
+
     // Control subscription
     control_sub = create_subscription<rm_msgs::msg::Control>(
         "enemy_predictor", rclcpp::SensorDataQoS(),
@@ -118,6 +121,8 @@ void SerialDriverNode::readPortCallback(uint8_t* buffer){
     }else if(buffer[1] == 0x04){
         autolob_recv_from_port_data_t* lmsg = (autolob_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
         autolonReadPortCallback(lmsg);
+    }else if(buffer[1]==0xcc){
+        pcCommonReadPortCallback(buffer + sizeof(protocol_header_t));
     }else{
         RCLCPP_ERROR(this->get_logger(), "Unknown protocol id: %d", buffer[1]);
     }
@@ -180,13 +185,38 @@ void SerialDriverNode::autoaimReadPortCallback(const autoaim_recv_from_port_data
     robot_msg.priority_level_arr.assign(
         _data->priority_level_arr,
         _data->priority_level_arr + sizeof(_data->priority_level_arr) / sizeof(uint8_t));
-    robot_msg.shoot_num = _data-> shoot_num;
+    //robot_msg.shoot_num = _data-> shoot_num;
     robot_msg.imu.roll = _data->roll;
     robot_msg.imu.pitch = _data->pitch;
     robot_msg.imu.yaw = _data->yaw;
 
     // robotpub_low_freq(robot_msg);
     robot_pub->publish(robot_msg);
+}
+
+void SerialDriverNode::pcCommonReadPortCallback(uint8_t* _data) { // 测试数据
+    //RCLCPP_INFO(this->get_logger(), "pc common recv from port");
+
+    uint8_t int_num = _data[0] >> 4;
+    uint8_t float_num = _data[0] & 0x0F;
+
+    rm_msgs::msg::PcCommon pc_common_msg;
+    pc_common_msg.int_arr.resize(int_num);
+    pc_common_msg.float_arr.resize(float_num);
+
+    for (size_t i = 0; i < int_num; ++i) {
+        int32_t val;
+        memcpy(&val, _data + 1 + i * 4, 4);
+        pc_common_msg.int_arr[i] = val;
+    }
+
+    for (size_t i = 0; i < float_num; ++i) {
+        float val;
+        memcpy(&val, _data + 1 + int_num * 4 + i * 4, 4);
+        pc_common_msg.float_arr[i] = val;
+    }
+
+    pc_common_pub->publish(pc_common_msg);
 }
 
 void SerialDriverNode::ControlCallback(const rm_msgs::msg::Control::SharedPtr _msg){
@@ -334,7 +364,7 @@ void SerialDriverNode::readFromPort(){
                 // NGXY_DEBUG("correct start");
                 is_success = this->read(buffer+1, 1);
                 
-                if(is_success && (buffer[1] == 0x03 || buffer[1] == 0x04))
+                if(is_success && (buffer[1] == 0x03 || buffer[1] == 0x04 || buffer[1]==0xcc))
                 {   
                     // NGXY_DEBUG( "correct id");
                     uint8_t* read_end = buffer+1;
@@ -359,6 +389,8 @@ void SerialDriverNode::readFromPort(){
                             is_size_correct = read_data_size - tail_size == autoaim_data_size;
                         else if(buffer[1] == 0x04) 
                             is_size_correct = read_data_size - tail_size == autolob_data_size;
+                        else if(buffer[1]==0xcc)
+                            is_size_correct=true;
                         else
                             RCLCPP_WARN(get_logger(), "Read Error Protocol");
                         if(is_size_correct && 
