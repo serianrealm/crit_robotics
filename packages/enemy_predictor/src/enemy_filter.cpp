@@ -15,6 +15,10 @@ EnemyCKF::EnemyCKF() : sample_num_(2 * STATE_NUM), is_initialized_(false) {
     }
     last_timestamp_tmp = 0.0;
     last_timestamp_ = 0.0;
+
+    last_enemy_yaw_ = 0.0;
+    yaw_unwrap_count_ = 0;
+    
     Xe = Vx::Zero();
     Pe = Mxx::Identity();
     Pp = Mxx::Identity();
@@ -40,8 +44,8 @@ void EnemyCKF::reset(const Eigen::Vector3d& position, double yaw, int _phase_id,
     Pe = config_.config_Pe;
     Pp = Mxx::Identity();
 
-    yaw_round_ = 0;
-    last_yaw = yaw;
+    last_enemy_yaw_ = 0.0;
+    yaw_unwrap_count_ = 0;
 
     last_timestamp_tmp = _timestamp;
     last_timestamp_ = _timestamp;
@@ -50,8 +54,9 @@ void EnemyCKF::reset(const Eigen::Vector3d& position, double yaw, int _phase_id,
 
 void EnemyCKF::update(const Eigen::Vector3d& position, double yaw, 
             double _timestamp, int _phase_id) {
-    
+
     double dT = _timestamp - last_timestamp_;
+
     if (dT < 1e-6){
         dT = _timestamp - last_timestamp_tmp; // 说明是同一帧的两个armor
         RCLCPP_INFO(rclcpp::get_logger("EnemyCKF"), "The second armor in the same Frame, update CKF again!", dT);
@@ -61,8 +66,16 @@ void EnemyCKF::update(const Eigen::Vector3d& position, double yaw,
         dT = 0.015;
         RCLCPP_INFO(rclcpp::get_logger("EnemyCKF"), "Invalid dT !!! Using default : %lf", dT);
     }
+
+    double inferred_enemy_yaw = yaw - _phase_id * angle_dis_;
+    
+    // 调整到当前估计的enemy_yaw附近
+    double wrapped_inferred_yaw = wrapToReference(inferred_enemy_yaw, Xe(4));
+    
+    // 使用调整后的装甲板yaw
+    double adjusted_armor_yaw = wrapped_inferred_yaw + _phase_id * angle_dis_;
     Vz z;
-    z << position.x(), position.y(), yaw;
+    z << position.x(), position.y(), adjusted_armor_yaw;
 
     predict(dT);
 
@@ -78,8 +91,8 @@ Eigen::Vector3d EnemyCKF::predictArmorPosition(double z, int phase_id, double dt
 
     double current_radius = Xe[6 + (phase_id % 2)];
     //double current_radius = 0.25;
-    //double armor_yaw = Xe[4] + Xe[5]*dt + phase_id * angle_dis_;
-    double armor_yaw = normalizeAngle(Xe[4] + Xe[5]*dt + phase_id * angle_dis_);
+    double armor_yaw = Xe[4] + Xe[5]*dt + phase_id * angle_dis_;
+    //double armor_yaw = normalizeAngle(Xe[4] + Xe[5]*dt + phase_id * angle_dis_);
     
     double pred_x = Xe[0] + Xe[1]*dt - current_radius* cos(armor_yaw);
     double pred_y = Xe[2] + Xe[3]*dt + current_radius* sin(armor_yaw);
@@ -157,7 +170,6 @@ void EnemyCKF::predict(double dt) {
     Pp += Q;
 }
 void EnemyCKF::measure(const Vz& z, int phase_id) {
-
     SRCR_sampling(Xp, Pp);
 
     calcR(z);
@@ -167,12 +179,12 @@ void EnemyCKF::measure(const Vz& z, int phase_id) {
         sample_Z[i] = h(samples_[i], phase_id);
         Zp += weights_[i] * sample_Z[i];
     }
+    
     Pzz = Mzz::Zero();
     for (int i = 0; i < sample_num_; ++i) {
         Pzz += weights_[i] * (sample_Z[i] - Zp) * (sample_Z[i] - Zp).transpose();
     }
     Pzz += R;
-
 }
 void EnemyCKF::correct(const Vz& z) {
     Pxz = Mxz::Zero();
@@ -182,35 +194,70 @@ void EnemyCKF::correct(const Vz& z) {
     
     K = Pxz * Pzz.inverse();
 
-    /*// 计算残差，特别注意角度残差
+    // 关键：处理角度残差，确保enemy_yaw连续
     Vz residual = z - Zp;
     
-    // 关键：角度残差需要特殊处理！
-    // 不能简单相减，要考虑角度过0点的情况
-    double angle_residual = z[2] - Zp[2];
+    // 获取预测的装甲板yaw（已经经过wrapToReference处理）
+    double predicted_armor_yaw = Zp[2];
+    double measured_armor_yaw = z[2];
     
-    // 归一化角度残差到[-π, π]
-    while (angle_residual > M_PI) angle_residual -= 2 * M_PI;
-    while (angle_residual < -M_PI) angle_residual += 2 * M_PI;
+    // 计算enemy_yaw的预测值
+    double predicted_enemy_yaw = Xp[4];
     
-    // 如果残差太大，可能是角速度预测不准，需要限制
-    const double MAX_ANGLE_RESIDUAL = M_PI / 2;  // 最大允许90度残差
-    if (fabs(angle_residual) > MAX_ANGLE_RESIDUAL) {
-        RCLCPP_WARN(rclcpp::get_logger("EnemyCKF"), 
-                   "Large angle residual: %lf rad, limiting to %lf", 
-                   angle_residual, MAX_ANGLE_RESIDUAL);
-        angle_residual = std::copysign(MAX_ANGLE_RESIDUAL, angle_residual);
+    // 关键步骤：将观测的装甲板yaw转换到enemy_yaw的周期
+    // 观测的装甲板yaw = enemy_yaw + phase * angle_dis_
+    // 所以：enemy_yaw = armor_yaw - phase * angle_dis_
+    
+    // 由于我们不知道当前是哪个phase，但measure函数中已经处理了，
+    // 所以Zp[2]已经是调整到测量值附近的预测装甲板yaw
+    
+    // 计算角度残差（装甲板yaw的残差）
+    double armor_yaw_residual = measured_armor_yaw - predicted_armor_yaw;
+    
+    // 装甲板yaw的残差应该等于enemy_yaw的残差
+    // 因为：armor_yaw = enemy_yaw + constant
+    // 所以：Δarmor_yaw = Δenemy_yaw
+    
+    // 限制角度残差的大小
+    const double MAX_ANGLE_RESIDUAL = M_PI / 2;
+    if (fabs(armor_yaw_residual) > MAX_ANGLE_RESIDUAL) {
+        armor_yaw_residual = std::copysign(MAX_ANGLE_RESIDUAL, armor_yaw_residual);
     }
     
-    residual[2] = angle_residual;*/
-
-    Xe = Xp + K * (z - Zp);
-
-    // Xe[4] = normalizeAngle(Xe[4]);
+    // 更新残差向量
+    residual[2] = armor_yaw_residual;
     
-    // 角速度约束
-    //const double MAX_OMEGA = M_PI * 3.0;  // 最大3 rad/s
-    //Xe[5] = std::clamp(Xe[5], -MAX_OMEGA, MAX_OMEGA);
+    // 使用卡尔曼增益更新状态
+    Xe = Xp + K * residual;
+    
+    // 关键：处理enemy_yaw的连续性
+    // 检查enemy_yaw是否发生了2π跳变
+    double current_enemy_yaw = Xe[4];
+    double yaw_diff = current_enemy_yaw - last_enemy_yaw_;
+    
+    // 如果变化超过π，可能是跳变了
+    if (fabs(yaw_diff) > M_PI) {
+        // 计算可能的跳变方向
+        if (yaw_diff > M_PI) {
+            // 从-π跳转到π
+            yaw_unwrap_count_--;
+            current_enemy_yaw -= 2 * M_PI;
+        } else if (yaw_diff < -M_PI) {
+            // 从π跳转到-π
+            yaw_unwrap_count_++;
+            current_enemy_yaw += 2 * M_PI;
+        }
+        
+        // 更新状态中的enemy_yaw
+        Xe[4] = current_enemy_yaw;
+    }
+    
+    // 更新last_enemy_yaw
+    last_enemy_yaw_ = Xe[4];
+    
+    // 确保角速度在合理范围内
+    const double MAX_OMEGA = M_PI * 3.0;
+    Xe[5] = std::clamp(Xe[5], -MAX_OMEGA, MAX_OMEGA);
 
     Pe = Pp - K * Pzz * K.transpose();
 }

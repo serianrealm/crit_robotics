@@ -113,7 +113,7 @@
     enemy_ckf.R_YAW: 0.064
     enemy_ckf.Q2_X: 20.0
     enemy_ckf.Q2_Y: 20.0
-    enemy_ckf.Q2_YAW: 85.0
+    enemy_ckf.Q2_YAW: 10.0
     enemy_ckf.Q_r : 0.002
     standard_dis: 0.17
     balance_dis: 0.2
@@ -143,7 +143,7 @@
     # 运动状态判断
     rotate_thresh: 2.5                    #进入旋转状态阈值
     rotate_exit: 1.5                      #退出旋转状态阈值
-    high_spd_rotate_thresh: 3.0           #进入高速旋转状态阈值
+    high_spd_rotate_thresh: 2.0           #进入高速旋转状态阈值
     high_spd_rotate_exit: 22.5            #退出高速旋转状态阈值
     move_thresh: 1.0                      #进入移动状态阈值(目前移动小陀螺判断)
     move_exit: 0.5                        #退出移动状态阈值
@@ -157,7 +157,7 @@
     choose_enemy_without_autoaim_signal: false  #在没有收到右键信号的时候也选择目标（调试用）
     yaw_thresh: 0.03
     # 延迟参数
-    response_delay: 0.15                 #系统延迟(程序+通信+云台响应)
+    response_delay: 0.12                 #系统延迟(程序+通信+云台响应)
     shoot_delay: 0.08                     #发弹延迟
 
     enemy_radius_cache_reset_time: 45.0

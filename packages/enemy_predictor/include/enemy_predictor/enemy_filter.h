@@ -38,8 +38,9 @@ public:
     double last_timestamp_;
     bool is_initialized_;
 
-    int yaw_round_ = 0;           // 记录yaw转过的圈数
-    double last_yaw = 0.0; // 上一次的状态yaw值
+    double last_enemy_yaw_;  // 上一次的enemy_yaw值，用于检测跳变
+    int yaw_unwrap_count_;   // yaw展开计数
+    std::vector<int> phase_id_cnt = {0,0,0,0};
 
     // 机器人特定参数
     double angle_dis_;
@@ -88,13 +89,28 @@ public:
     void calcQ(double dt);
     void calcR(const Vz& z);
 
-    // 将角度标准化到[-π, π]范围内
-    double normalizeAngle(double angle) const{
-        angle = std::fmod(angle + M_PI, 2 * M_PI);
-        if (angle < 0) {
-            angle += 2 * M_PI;
-        }
-        return angle - M_PI;
+    // 将角度归一化到[-π, π]
+    double normalizeAngle(double angle) const {
+        while (angle > M_PI) angle -= 2 * M_PI;
+        while (angle < -M_PI) angle += 2 * M_PI;
+        return angle;
+    }
+    
+    // 获取归一化的yaw（用于外部接口）
+    double getNormalizedYaw() const {
+        return normalizeAngle(Xe[4]);
+    }
+    
+    double wrapToReference(double angle, double reference) {
+        // 计算差值并调整到[-π, π]
+        double diff = angle - reference;
+        
+        // 将diff归一化到[-π, π]
+        while (diff > M_PI) diff -= 2 * M_PI;
+        while (diff < -M_PI) diff += 2 * M_PI;
+        
+        // 返回调整后的角度
+        return reference + diff;
     }
     
     // 工具函数

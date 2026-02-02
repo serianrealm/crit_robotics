@@ -102,6 +102,9 @@ EnemyPredictorNode::EnemyPredictorNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("high_spd_rotate_thresh", 0.30);
     cmd.high_spd_rotate_thresh = this->get_parameter("high_spd_rotate_thresh").as_double();
 
+    this->declare_parameter<double>("rotate_thresh", 0.30);
+    cmd.rotate_thresh = this->get_parameter("rotate_thresh").as_double();
+
     this->declare_parameter<double>("yaw_thresh", 0.01);
     cmd.yaw_thresh = this->get_parameter("yaw_thresh").as_double();
 

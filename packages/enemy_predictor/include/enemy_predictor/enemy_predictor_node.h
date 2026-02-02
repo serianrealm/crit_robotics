@@ -161,7 +161,7 @@ public:
     struct Command{
         rm_msgs::msg::RmRobot robot;
         double high_spd_rotate_thresh = 0.0;
-        Eigen::Vector3d aim_center = Eigen::Vector3d(-999, -999, -999);
+        double rotate_thresh = 0.0;
         double yaw_thresh = 0.0;
         double cmd_pitch = 0.0;
         double cmd_yaw = 0.0;

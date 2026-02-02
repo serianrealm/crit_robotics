@@ -54,6 +54,9 @@ void EnemyPredictorNode::updateArmorDetection(std::vector<cv::Point3f> object_po
     double roll = det.orientation.x();
     double pitch = det.orientation.y();
     double yaw = det.orientation.z();
+    RCLCPP_INFO(get_logger(), "roll = %lf", roll);
+     RCLCPP_INFO(get_logger(), "pitch = %lf", pitch);
+     RCLCPP_INFO(get_logger(), "yaw = %lf", yaw);
 
     double cr = cos(roll), sr = sin(roll);
     double cp = cos(pitch), sp = sin(pitch);
@@ -543,7 +546,7 @@ void EnemyPredictorNode::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& track
         
         //RCLCPP_INFO(get_logger(), "enemy.enemy_ckf.Xe(4) = %lf", enemy.enemy_ckf.Xe(4));
         //RCLCPP_INFO(get_logger(), "tracker.yaw = %lf", tracker.yaw);
-        double angle_diff = normalize_angle(tracker.yaw - enemy.enemy_ckf.Xe(4));
+        double angle_diff = normalize_angle(tracker.yaw - normalize_angle(enemy.enemy_ckf.Xe(4)));
 
         if(angle_diff >= -M_PI/4 && angle_diff < M_PI/4){
             candidate_phase = 0; // 前方
@@ -693,16 +696,18 @@ void EnemyPredictorNode::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& track
 }
 int EnemyPredictorNode::ChooseMode(Enemy &enemy, double timestamp){
     if(abs(enemy.enemy_ckf.Xe(5)) > cmd.high_spd_rotate_thresh){
+       return 2;
+    }
+    else if(abs(enemy.enemy_ckf.Xe(5)) > cmd.rotate_thresh){
        return 1;
-    }else{
-       return 0;
+    }
+    else{
+        return 0;
     }
 }
 void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time timestamp_image, std::vector<int>& active_armor_idx){
     
     cmd.cmd_mode = ChooseMode(enemy, timestamp);
-
-    RCLCPP_INFO(get_logger(), "CKF: Xe(5) = %lf", enemy.enemy_ckf.Xe(5));
     RCLCPP_INFO(get_logger(),"MODE :%d",cmd.cmd_mode);
 
     cmd.target_enemy_idx = enemy.class_id -1;
@@ -763,7 +768,7 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
         yaw_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
         enemy_markers_.markers.push_back(yaw_marker);
     }
-    if(cmd.cmd_mode == 1){
+    if(cmd.cmd_mode == 2){
         
         Eigen::Vector3d armor_center_pre = Eigen::Vector3d(0, 0, 0);
         Eigen::Vector3d armor_xyyaw_pre = Eigen::Vector3d(0, 0, 0);
@@ -791,17 +796,20 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
                         1.0,                             // 大小
                         cv::Scalar(0, 0, 255),           // 颜色
                         2);                              // 粗细
-           
+           cv::putText(visualize_.armor_img, 
+                    cv::format("yaw = %.2f", enemy.enemy_ckf.Xe(4)),  // 新增数据
+                    cv::Point(50, 140),  // y坐标下移40像素
+                    cv::FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    cv::Scalar(0, 255, 0),
+                    2);
             if (std::abs(yaws[i] - enemy_yaw_xy) < cmd.yaw_thresh){
-                //cmd.aim_center = armor_center_pre; 
+               
                 auto ball_center = bac.final_ballistic(tf_.odom_to_gimbal, enemy_center_pre);
 
                 cmd.cmd_pitch = ball_center.pitch;
                 cmd.cmd_yaw = ball_center.yaw;
-                //RCLCPP_INFO(this->get_logger(), 
-                //            "Firing at phase %d: pitch=%.3f°, yaw=%.3f°, aim=(%.3f,%.3f,%.3f)",
-                //            i, cmd.cmd_pitch, cmd.cmd_yaw,
-                //            cmd.aim_center.x(), cmd.aim_center.y(), cmd.aim_center.z());
+                
                 visualizeAimCenter(armor_center_pre, cv::Scalar(0, 0, 255));
 
                 enemy_markers_.markers.clear();
@@ -836,14 +844,21 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
             }
         }
     }
-    else if(cmd.cmd_mode == 0){
+    else if(cmd.cmd_mode == 1 && cmd.cmd_mode == 2){
         cv::putText(visualize_.armor_img, 
-                            cv::format("W = %.2f", enemy.enemy_ckf.Xe(5)),  // 格式化文本
-                            cv::Point(50, 100),              // 位置
-                            cv::FONT_HERSHEY_SIMPLEX,        // 字体
-                            1.0,                             // 大小
-                            cv::Scalar(0, 255, 255),         // 颜色
-                            2);                              // 粗细
+                    cv::format("W = %.2f", enemy.enemy_ckf.Xe(5)),  // 格式化文本
+                    cv::Point(50, 100),              // 位置
+                    cv::FONT_HERSHEY_SIMPLEX,        // 字体
+                    1.0,                             // 大小
+                    cv::Scalar(0, 255, 255),         // 颜色
+                    2);                              // 粗细
+        cv::putText(visualize_.armor_img, 
+                    cv::format("yaw = %.2f", enemy.enemy_ckf.Xe(4)),  // 新增数据
+                    cv::Point(50, 140),  // y坐标下移40像素
+                    cv::FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    cv::Scalar(0, 255, 0),
+                    2);
         if(active_trackers.size() == 0){
             RCLCPP_WARN(this->get_logger(), "No active trackers found");
             return;
@@ -864,35 +879,6 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
         }
         
         else{
-            //ArmorTracker* best_tracker = nullptr;
-            //double yaw_need_min = 1.05;
-            //double yaw = 0.0;
-            //double pitch_need = 0.0;
-            //
-            //for (ArmorTracker* tracker : active_trackers) {
-            //    auto [ball_res, p] = calc_ballistic_one(
-            //        (params_.response_delay + params_.shoot_delay), 
-            //        timestamp_image, 
-            //        *tracker, 
-            //        timestamp,
-            //        predict_func_double
-            //    );
-            //    // 最优armor
-            //    if(abs(ball_res.yaw - yaw_now) < abs(yaw_need_min)){
-            //        yaw_need_min = ball_res.yaw - yaw_now;
-            //        pitch_need = ball_res.pitch;
-            //        yaw = ball_res.yaw;
-            //    }
-            //}
-            //// 即使是最优armor,需要转动的角度 < 60度时才击打
-            //if(abs(yaw_need_min - yaw_now) < 0.79){
-            //    cmd.cmd_yaw = yaw;
-            //    cmd.cmd_pitch = pitch_need;
-            //}else{
-            //    cmd.cmd_mode = -1;
-            //}
-            int shoot_cnt = 0;
-    
             auto [ball_res, p] = calc_ballistic_one(
                    (params_.response_delay + params_.shoot_delay), 
                    timestamp_image, 
@@ -900,41 +886,53 @@ void EnemyPredictorNode::getCommand(Enemy& enemy, double timestamp, rclcpp::Time
                    timestamp,
                    predict_func_double
                 );
-            double yaw_need = ball_res.yaw - yaw_now;
-            double area_max = active_trackers[0]->area_2d;
+            Eigen::Vector3d enemy_center_pre = enemy.enemy_ckf.predictCenterPosition(enemy.center(2), ball_res.t + params_.response_delay + params_.shoot_delay);
+            double enemy_yaw_xy = std::atan2(enemy_center_pre[1], enemy_center_pre[0]); 
 
-            cmd.cmd_yaw = ball_res.yaw;
-            cmd.cmd_pitch = ball_res.pitch;
-            cmd.last_armor_idx = active_trackers[0]->tracker_idx;
-
-            for(int i = 1; i < active_trackers.size(); i++){
+            for(ArmorTracker* tracker : active_trackers){
                 auto [ball_res, p] = calc_ballistic_one(
                    (params_.response_delay + params_.shoot_delay), 
                    timestamp_image, 
-                   *active_trackers[i], 
+                   *tracker, 
                    timestamp,
                    predict_func_double
                 );
-                if(ball_res.yaw - yaw_now < yaw_need){
-                  shoot_cnt ++;
-                }
-                if(active_trackers[i]->area_2d > area_max){
-                  shoot_cnt +=2;
-                }
+                Eigen::Vector3d armor_center_pre = FilterManage(enemy, ball_res.t + params_.response_delay + params_.shoot_delay, *tracker, timestamp);
+                double armor_yaw_xy = std::atan2(armor_center_pre(1), armor_center_pre(0));
 
-                if(shoot_cnt = 3){
-                   cmd.cmd_yaw = ball_res.yaw;
-                   cmd.cmd_pitch = ball_res.pitch;
-                   cmd.last_armor_idx = active_trackers[i]->tracker_idx;
+                // 计算向量
+                Eigen::Vector2d vec1(-enemy_center_pre(0), -enemy_center_pre(1));      // enemy_center -> 原点
+                Eigen::Vector2d vec2(armor_center_pre(0) - armor_center_pre(0),
+                                     armor_center_pre(1) - armor_center_pre(1));      // enemy_center -> armor_center
+                
+                // 计算点积和叉积
+                double dot = vec1.dot(vec2);
+                double cross = vec1.x() * vec2.y() - vec1.y() * vec2.x();  // 叉积的z分量
+                
+                // 计算夹角（有符号，表示方向）[vec1 -> vec2 逆时针为正， 反之为负]
+                double angle = std::atan2(cross, dot);
+                // omega > 0 , enemy顺时针旋转，
+                if(enemy.enemy_ckf.Xe(5) > 0){
+                    // [-30度 ~ +45度]
+                    if(angle < 0.78540 && angle > -0.52333){
+                       cmd.cmd_yaw = ball_res.yaw;
+                       cmd.cmd_pitch = ball_res.pitch;
+                    }
                 }
-                if(shoot_cnt == 2 && cmd.last_armor_idx == active_trackers[i]->tracker_idx){
-                   cmd.cmd_yaw = ball_res.yaw;
-                   cmd.cmd_pitch = ball_res.pitch;
-                   cmd.last_armor_idx = active_trackers[i]->tracker_idx;
+                if(enemy.enemy_ckf.Xe(5) < 0){
+                    // [-45度 ~ +30度]
+                    if(angle < 0.52333 && angle > -0.78540){
+                       cmd.cmd_yaw = ball_res.yaw;
+                       cmd.cmd_pitch = ball_res.pitch;
+                    }
                 }
             }
+            
         }
     }
+    //else{
+    //    
+    //}
 }
 std::pair<Ballistic::BallisticResult, Eigen::Vector3d> EnemyPredictorNode::calc_ballistic_one
             (double delay, rclcpp::Time timestamp_image, ArmorTracker& tracker, double timestamp,
