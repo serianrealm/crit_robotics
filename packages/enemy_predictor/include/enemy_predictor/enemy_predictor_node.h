@@ -170,6 +170,8 @@ public:
         bool right_press = false;
         int cmd_mode; //  0 -> 平动 , 1 -> 小陀螺
         int last_armor_idx = -1;
+        int one_shot_num = 0;
+        int rate = 0;
     }cmd;
     struct EnemyPredictorNodeParams{
         std::string detection_name;
@@ -292,6 +294,7 @@ private:
     void cleanOldImuData();
 
     // 角度处理
+    double angleBetweenVectors(Eigen::Vector3d vec1, Eigen::Vector3d vec2);
     double normalize_angle(double angle);
     double angle_difference(double a, double b);
     

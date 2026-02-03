@@ -102,7 +102,7 @@ EnemyPredictorNode::EnemyPredictorNode(const rclcpp::NodeOptions& options)
     this->declare_parameter<double>("high_spd_rotate_thresh", 0.30);
     cmd.high_spd_rotate_thresh = this->get_parameter("high_spd_rotate_thresh").as_double();
 
-    this->declare_parameter<double>("rotate_thresh", 0.30);
+    this->declare_parameter<double>("rotate_thresh", 0.25);
     cmd.rotate_thresh = this->get_parameter("rotate_thresh").as_double();
 
     this->declare_parameter<double>("yaw_thresh", 0.01);
@@ -271,6 +271,8 @@ void EnemyPredictorNode::detection_callback(const vision_msgs::msg::Detection2DA
     tf_.odom_to_gimbal =  getTrans("odom", "gimbal", time_image);
     
     cmd.cmd_mode = -1;
+    cmd.one_shot_num = 0;
+    cmd.rate = 0;
     for(Enemy& enemy : enemies_){
         enemy.is_active = false;
     }
@@ -324,43 +326,22 @@ void EnemyPredictorNode::detection_callback(const vision_msgs::msg::Detection2DA
     EnemyManage(timestamp, time_image, active_enemies_idx, active_armor_idx);
 
     rm_msgs::msg::Control control_msg{};
-   
-    if (cmd.cmd_mode == 0 || cmd.cmd_mode == 1){
-
-        control_msg.pitch = cmd.cmd_pitch;
-        //RCLCPP_INFO(get_logger(), "cmd.cmd_pitch =%d", cmd.cmd_pitch);
+    //如果真的出现没有目标的特殊情况，cmd不会更新，保持上一帧的控制指令，云台会停在原来的位置不动
+    if (cmd.cmd_mode == 0 || cmd.cmd_mode == 1 || cmd.cmd_mode == 2){
+        // 都开自瞄了肯定要控云台，只是发不发弹的区别
         control_msg.flag = 1;
         control_msg.vision_follow_id = enemies_[cmd.target_enemy_idx].class_id;
-        if(cmd.cmd_mode == 0){
-           control_msg.rate = 10; // adjust it later!!!
-           control_msg.one_shot_num = 1;
-        }
-        else if(cmd.cmd_mode == 1){
-           control_msg.rate = 10;
-           control_msg.one_shot_num = 1;
-        }
-        //bool success = yaw_planner.setTargetYaw(cmd.cmd_yaw, imu_.current_yaw);
-        bool success = false;    //先把自瞄调通
-        if(!success){
-            control_msg.yaw = cmd.cmd_yaw;
-            publish_mode_ = PublishMode::FRAME_RATE_MODE;
-            RCLCPP_INFO(get_logger(), "Publish Control Msgs!");
-        }else{
-            publish_mode_ = PublishMode::HIGH_FREQ_MODE;
-        }
+        control_msg.pitch = cmd.cmd_pitch;
+        control_msg.yaw = cmd.cmd_yaw;
+        control_msg.one_shot_num = cmd.one_shot_num;
+        control_msg.rate = cmd.rate;
+        
+        control_pub-> publish(std::move(control_msg));
+    }else{
+        control_msg.flag = 0;
         control_pub-> publish(std::move(control_msg));
     }
-    //else{
-    //    control_msg.flag = 0;
-    //    control_msg.yaw = 0.0;
-    //    control_msg.pitch = 0.0;
-    //    control_msg.rate = 0;
-    //    control_msg.one_shot_num = 0;
-//
-    //    RCLCPP_INFO(get_logger(), "No valid Control Msgs");
-    //}
-    //control_pub-> publish(std::move(control_msg));
-
+    // rviz2可视化
     if (!enemy_markers_.markers.empty()) {
         enemy_markers_pub_->publish(enemy_markers_);
     }

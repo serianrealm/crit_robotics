@@ -15,7 +15,6 @@ def pose_estimate(keypoints: np.ndarray,
     Returns position and orientation.
     """
     import logging
-    logging.warning(f"{keypoints}")
     try:
         is_success, rvec, tvec = cv2.solvePnP(
             objectPoints=object_points,
@@ -53,7 +52,7 @@ def pose_estimate(keypoints: np.ndarray,
     roll = np.arctan2(-R[0, 1], R[0, 0])
     pitch = np.deg2rad(-15)
     
-    yaw = np.arctan2(R[0,2], abs(R[2,2])) * 1.105 # np.arctan2(sintheta, costheta)
+    yaw = np.arctan2(R[0,2], abs(R[2,2])) # np.arctan2(sintheta, costheta)
 
     position = np.array([x, y, z])
     orientation = np.array([roll, pitch, yaw])
