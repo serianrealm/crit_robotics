@@ -15,8 +15,7 @@
 #include <opencv2/opencv.hpp>
 #include "enemy_predictor/armor_filter.h"
 #include "enemy_predictor/enemy_filter.h"
-#include "enemy_predictor/enemy_ballistic.h"
-#include <enemy_trajectoryControl.h>
+
 #include <sensor_msgs/msg/image.hpp>
 #include "datatypes.h"
 #include "image_transport/image_transport.hpp"
@@ -25,20 +24,24 @@
 #include "rm_msgs/msg/control.hpp"
 #include "visualization_msgs/msg/marker_array.hpp"
 #include "geometry_msgs/msg/point.hpp"
+#include "enemy_predictor/node_interface.hpp"
 
-class EnemyPredictorNode : public rclcpp::Node {
+
+class EnemyPredictor: public PredictorInterface {
 
 public:    
-    static constexpr size_t MAX_ENEMIES = 8;
-    enum class PublishMode{
-        FRAME_RATE_MODE,    // 帧率模式：每次detection_callback直接发送
-        HIGH_FREQ_MODE      // 高频模式：启动高频回调发送插值点
-    }publish_mode_;
+    explicit EnemyPredictor(rclcpp::Node* node);
+    virtual ~EnemyPredictor() = default;
 
-    struct ImuData{
-        double current_yaw = 0.0;
-        rclcpp::Time timestamp;
-    }imu_;
+    rclcpp::Logger get_logger() const {
+        if (!node_) {
+            throw std::runtime_error("Node pointer is null");
+        }
+        return node_->get_logger();
+    }
+
+    static constexpr size_t MAX_ENEMIES = 8;
+
     struct TF{
         Eigen::Isometry3d odom_to_gimbal;
         Eigen::Isometry3d camara_to_odom;
@@ -48,9 +51,7 @@ public:
         Eigen::Vector3d position;
         Eigen::Vector3d orientation; 
         int armor_class_id;         
-        //double confidence;      
-        int armor_idx;
-        //cv::Rect rect;          
+        int armor_idx; 
         double yaw;    
         double area_2d;      
         double dis_2d;   
@@ -170,8 +171,9 @@ public:
         bool right_press = false;
         int cmd_mode; //  0 -> 平动 , 1 -> 小陀螺
         int last_armor_idx = -1;
-        int one_shot_num = 0;
-        int rate = 0;
+        bool booster_enable = 0;
+        std::vector<double> stored_yaw_offsets{};
+        std::vector<double> stored_pitch_offsets{};
     }cmd;
     struct EnemyPredictorNodeParams{
         std::string detection_name;
@@ -210,20 +212,10 @@ public:
     std::vector<ArmorTracker> armor_trackers_;
     std::array<Enemy, MAX_ENEMIES> enemies_;
     
-    Ballistic::BallisticResult ball_res;
-    Ballistic bac;
-    Ballistic::BallisticParams create_ballistic_params();
     RmcvId self_id;
     double yaw_now = 0.0;
-    
-    //YawTrajectoryPlanner yaw_planner;
    
     double timestamp;
-    // 参数
-    double interframe_dis_thresh = 0.5;
-    double robot_2armor_dis_thresh= 1.0;
-    double min_radius_ = 0.12;
-    double max_radius_ = 0.30;
     
     // 可视化相关
     struct VisualizeData {
@@ -252,9 +244,6 @@ public:
         {0.115, 0.029, 0.}
     };    
 public:
-    explicit EnemyPredictorNode(const rclcpp::NodeOptions& options);
-    
-
     void updateArmorDetection(std::vector<cv::Point3f> object_points,
                               Detection& det,
                               rclcpp::Time timestamp_det);
@@ -267,6 +256,11 @@ public:
                                rclcpp::Time timestamp_det);
     void EnemyManage(double timestamp, rclcpp::Time timestamp_det, std::vector<int>& active_enemies_idx, std::vector<int>& active_armor_idx);
 private:
+    void initBallistic();
+    void initFilterParams();
+    void initCommandParams();
+    rclcpp::Node* node_;
+
     // 敌人分配和更新
     void updateEnemy(Enemy& enemy, double timestamp, std::vector<int>& active_armor_idx);
 
@@ -278,8 +272,8 @@ private:
     void findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& tracker,  std::vector<ArmorTracker*> active_armors_this_enemy);
     int estimatePhaseFromPosition(const Enemy& enemy, const ArmorTracker& tracker);
     // 决策 + 弹道
-    std::pair<Ballistic::BallisticResult, Eigen::Vector3d> calc_ballistic_one(double delay, rclcpp::Time timestamp_det, ArmorTracker& tracker, double timestamp, std::function<Eigen::Vector3d(ArmorTracker&, double, double)> _predict_func);
-    std::pair<Ballistic::BallisticResult, Eigen::Vector3d> calc_ballistic_second(double delay, rclcpp::Time timestamp_det, double timestamp, int phase_id, Enemy& enemy, std::function<Eigen::Vector3d(Enemy&, double, int)> _predict_func);
+    BallisticResult calc_ballistic_one(double delay, rclcpp::Time timestamp_det, ArmorTracker& tracker, double timestamp, std::function<Eigen::Vector3d(ArmorTracker&, double, double)> _predict_func);
+    BallisticResult calc_ballistic_second(double delay, rclcpp::Time timestamp_det, double timestamp, int phase_id, Enemy& enemy, std::function<Eigen::Vector3d(Enemy&, double, int)> _predict_func);
     void getCommand(Enemy& enemy, double timestamp, rclcpp::Time timestamp_det, std::vector<int>& active_armor_idx);
     int ChooseMode(Enemy &enemy, double timestamp);
     // tool
@@ -287,11 +281,6 @@ private:
 
     void useGeometricCenterSimple(Enemy& enemy, 
                                 const std::vector<ArmorTracker*>& active_armors);
-
-    //std::vector<cv::Point2f> EnemyPredictorNode::Reprojection(Eigen::Vector3d odom_3d);
-    //同步imu messages(yaw)
-    double getCurrentYaw(const rclcpp::Time & target_time);
-    void cleanOldImuData();
 
     // 角度处理
     double angleBetweenVectors(Eigen::Vector3d vec1, Eigen::Vector3d vec2);
@@ -302,9 +291,7 @@ private:
     void visualizeAimCenter(const Eigen::Vector3d& armor_odom, const cv::Scalar& point_color = cv::Scalar(0, 0, 255));
     
     rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr detector_sub;
-    rclcpp::Subscription<rm_msgs::msg::RmRobot>::SharedPtr imu_sub;
 
-    image_transport::CameraSubscriber camera_sub;
     rclcpp::Publisher<rm_msgs::msg::Control>::SharedPtr control_pub;
 
     rm_msgs::msg::Control::SharedPtr control_msg;
@@ -312,29 +299,20 @@ private:
 
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf2_listener;
-    rclcpp::TimerBase::SharedPtr high_freq_timer_;    // 高频定时器
-    rm_msgs::msg::RmRobot robot;
-    sensor_msgs::msg::Image::SharedPtr img_msg; 
+    
     rclcpp::Time time_det;
     rclcpp::Time time_image;
 
-    std::deque<ImuData> imu_buffer_;
-    // 保护缓冲区的互斥锁
-    std::mutex buffer_mutex_;
-    // 缓存的最大时长（秒），用于清理旧数据
-    double buffer_duration_ = 10.0;
+    std::shared_ptr<BallisticSolver> ballistic_solver_;
 
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr enemy_markers_pub_;
     visualization_msgs::msg::MarkerArray enemy_markers_;
-    //Armor armor;
+
     void detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr detection_msg);
-    void robot_callback(const rm_msgs::msg::RmRobot::SharedPtr robot_msg);
-    void camera_callback(const sensor_msgs::msg::Image::ConstSharedPtr& image_msg,
-                         const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info_msg);
-    //void HighFrequencyCallback();
+
 };
 #include "rclcpp_components/register_node_macro.hpp"
-RCLCPP_COMPONENTS_REGISTER_NODE(EnemyPredictorNode)  // 注册插件
+//RCLCPP_COMPONENTS_REGISTER_NODE(EnemyPredictor)  // 注册插件
 
 
 #endif // _ENEMY_PREDICTOR_NODE_H

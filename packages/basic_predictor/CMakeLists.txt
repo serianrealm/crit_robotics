@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(enemy_predictor)
+project(basic_predictor)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -21,8 +21,8 @@ set(link ${OpenCV_LIBS} ${link})
 find_package(Eigen3 3.3 REQUIRED)
 set(link Eigen3::Eigen ${link})
 
-find_package(cv_bridge REQUIRED)  # 添加这一行
-find_package(sensor_msgs REQUIRED)  # 添加这一行
+find_package(cv_bridge REQUIRED) 
+find_package(sensor_msgs REQUIRED) 
 find_package(vision_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
@@ -44,9 +44,8 @@ set(src
   src/armor_filter.cpp
   src/enemy_filter.cpp
   src/enemy_calculate.cpp
-  src/enemy_ballistic.cpp
-  src/enemy_sync.cpp
-  src/enemy_trajctory.cpp
+  src/node_interface.cpp
+  src/ballestic_utils.cpp
 )
 
 
@@ -62,7 +61,7 @@ target_link_libraries(
 )
 
 rclcpp_components_register_node(${PROJECT_NAME}
-  PLUGIN EnemyPredictorNode
+  PLUGIN EnemyPredictor
   EXECUTABLE ${PROJECT_NAME}_node
 )
 

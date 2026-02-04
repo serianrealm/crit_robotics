@@ -12,10 +12,14 @@ find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Control.msg"
-  "msg/RmImu.msg"
+  "msg/Imu.msg"
+  "msg/ImuStamped.msg"
   "msg/RmRobot.msg"
   "msg/State.msg"
   "msg/PcCommon.msg"
+  "msg/TestRecv.msg"
+  "srv/ToggleVisionFollowId.srv"
+  "srv/SetVisionMode.srv"
   DEPENDENCIES
   std_msgs
   geometry_msgs

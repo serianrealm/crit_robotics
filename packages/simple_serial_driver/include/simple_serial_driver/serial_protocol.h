@@ -15,26 +15,14 @@ struct autoaim_send_to_port_data_t{
     uint8_t vision_follow_id;
     uint8_t cam_mode;
 
-    rm_msgs::msg::Control toControlMsg(){
-        rm_msgs::msg::Control now;
-        now.pitch = pitch;
-        now.yaw = yaw;
-        now.flag = flag;
-        now.vision_follow_id = vision_follow_id;
-        now.rate = rate;
-        now.one_shot_num = one_shot_num;
-        now.cam_mode = cam_mode;
-        return now;
-    }
-
     void fromControlMsg(rm_msgs::msg::Control msg){
-        pitch = msg.pitch;
-        yaw = msg.yaw;
-        flag = msg.flag;
+        pitch = msg.imu.pitch;
+        yaw = msg.imu.yaw;
+        flag = msg.control_mode != 0;
         vision_follow_id = msg.vision_follow_id;
-        rate = msg.rate;
-        one_shot_num = msg.one_shot_num;
-        cam_mode = msg.cam_mode;
+        rate = msg.booster_enable ? 10 : 0;
+        one_shot_num = msg.booster_enable ? 1 : 0;
+        cam_mode = 0;
     }
 };
 

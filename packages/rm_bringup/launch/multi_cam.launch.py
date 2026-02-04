@@ -155,7 +155,7 @@ def generate_launch_description():
                 ),
                 ComposableNode(
                     package="enemy_predictor",
-                    plugin="enemy_predictor::EnemyPredictorNode",
+                    plugin="enemy_predictor::EnemyPredictor",
                     name="enemy_predictor",
                     parameters=ros_parameters,
                     extra_arguments=[{"use_intra_process_comms": True}],

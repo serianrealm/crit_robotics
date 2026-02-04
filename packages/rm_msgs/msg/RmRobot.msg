@@ -2,7 +2,7 @@ std_msgs/Header header
 string vision_mode
 float64 height
 float64 z_velocity
-RmImu imu
+Imu imu
 float64 bullet_velocity
 uint8 robot_id
 # 发射频率推荐值

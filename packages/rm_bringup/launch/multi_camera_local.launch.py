@@ -154,7 +154,7 @@ def generate_launch_description():
                 ),
                 ComposableNode(
                     package="enemy_predictor",
-                    plugin="EnemyPredictorNode",
+                    plugin="EnemyPredictor",
                     name="enemy_predictor",
                     parameters=[node_params, {"pitch2yaw_t": launch_params["pitch2yaw_t"]}],
                     extra_arguments=[{"use_intra_process_comms": True}],
