@@ -5,7 +5,8 @@
 struct BallisticResult {
     bool success = false;
     double pitch = 0.;
-    double t = 0.;
+    double yaw = 0.;
+    double fly_time = 0.;
 };
 
 class BallisticSolver {

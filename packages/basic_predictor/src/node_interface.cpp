@@ -1,21 +1,128 @@
 #include "basic_predictor/node_interface.hpp"
 
 #include <std_msgs/msg/header.hpp>
+#include "node_interface.hpp"
 
-EnemyPredictor::EnemyPredictor(const rclcpp::Node* node) {
-    static_cast<void>(node);
+PredictorInterface::PredictorInterface(PredictorNodeInterface* node) : node(node) {
 }
 
-EnergyPredictor::EnergyPredictor(const rclcpp::Node* node) {
-    static_cast<void>(node);
+EnemyPredictor::EnemyPredictor(PredictorNodeInterface* node) : PredictorInterface(node) {
 }
 
-OutpostPredictor::OutpostPredictor(const rclcpp::Node* node) {
-    static_cast<void>(node);
+OutpostPredictor::OutpostPredictor(PredictorNodeInterface* node) : PredictorInterface(node) {
 }
 
-BasePredictor::BasePredictor(const rclcpp::Node* node) {
-    static_cast<void>(node);
+EnergyUniformSpeedPredictor::EnergyUniformSpeedPredictor(PredictorNodeInterface* node) : PredictorInterface(node) {
+
+}
+
+void EnergyUniformSpeedPredictor::predict(const vision_msgs::msg::Detection2DArray& msg) {
+    auto best_det = *std::max_element(
+    msg.detections.begin(), msg.detections.end(),
+    [](const auto& a, const auto& b) {
+        auto best_score = [](const vision_msgs::msg::Detection2D& d) {
+            double s = -std::numeric_limits<double>::infinity();
+            for (const auto& r : d.results) {
+                s = std::max<double>(s, r.hypothesis.score);
+            }
+            return s;
+        };
+        return best_score(a) < best_score(b);
+    });
+
+    if (best_det.results.empty()) {
+        node->send_command(
+            node->get_robot_state().imu,
+            0,
+            0
+        );
+        return;
+    }
+
+    auto target = best_det.results[0].pose.pose;
+    manager.update(target);
+
+    auto bac_res = node->solve_ballistic(target.position);
+    for (size_t i = 0; i < node->get_parameter("ballestic.iteration").as_int(); i++) {
+        target = manager.predict(target, bac_res.fly_time);
+        bac_res = node->solve_ballistic(target.position);
+    }
+
+    auto diff = std::remainder(target.orientation.x - roll, M_PI*2/5);
+    roll = target.orientation.x;
+
+    stamp = msg.header.stamp;
+    if (diff > M_PI / 5) {
+        toggle_stamp = msg.header.stamp;
+    }
+
+    if ((rclcpp::Time(stamp) - rclcpp::Time(toggle_stamp)).nanoseconds <= 3e8
+        and (rclcpp::Time(msg.header.stamp) - rclcpp::Time(toggle_stamp)).nanoseconds > 3e8
+            and manager.is_initialized()) {
+        node->send_command(
+            rm_msgs::msg::Imu().set__roll(0.).set__pitch(bac_res.pitch).set__yaw(bac_res.yaw),
+            1,
+            1
+        );
+    } else {
+        node->send_command(
+            rm_msgs::msg::Imu().set__roll(0.).set__pitch(bac_res.pitch).set__yaw(bac_res.yaw),
+            1,
+            0 
+        );
+    }
+}
+
+void EnergyVariableSpeedPredictor::predict(const vision_msgs::msg::Detection2DArray& msg) {
+    auto sorted_msg = msg;
+    std::sort(
+    sorted_msg.detections.begin(), sorted_msg.detections.end(),
+    [](const auto& a, const auto& b) {
+        auto best_score = [](const vision_msgs::msg::Detection2D& d) {
+            double s = -std::numeric_limits<double>::infinity();
+            for (const auto& r : d.results) {
+                s = std::max<double>(s, r.hypothesis.score);
+            }
+            return s;
+        };
+        return best_score(a) < best_score(b);
+    });
+
+    std::vector<geometry_msgs::msg::Pose> poses{};
+    for (size_t i = 0; i < std::min(sorted_msg.detections.size(), 2); i++) {
+        if (not sorted_msg.detections[i].results.empty()) {
+            poses.emplace_back(sorted_msg.detections[i].results[0].pose.pose);
+        }
+    }
+
+    manager.update(poses);
+
+    stamp = msg.header.stamp;
+    if (num_detections != std::min(sorted_msg.detections.size(), 2)) {
+        toggle_stamp = msg.header.stamp;
+        tracking_id
+    }
+
+    num_detections = std::min(sorted_msg.detections.size(), 2);
+
+    if ((rclcpp::Time(stamp) - rclcpp::Time(toggle_stamp)).nanoseconds <= 3e8
+        and (rclcpp::Time(msg.header.stamp) - rclcpp::Time(toggle_stamp)).nanoseconds > 3e8
+            and manager.is_initialized()) {
+        node->send_command(
+            rm_msgs::msg::Imu().set__roll(0.).set__pitch(bac_res.pitch).set__yaw(bac_res.yaw),
+            1,
+            1
+        );
+    } else {
+        node->send_command(
+            rm_msgs::msg::Imu().set__roll(0.).set__pitch(bac_res.pitch).set__yaw(bac_res.yaw),
+            1,
+            0 
+        );
+    }
+}
+
+EnergyVariableSpeedPredictor::EnergyVariableSpeedPredictor(const PredictorNodeInterface* node) {
 }
 
 PredictorNodeInterface::PredictorNodeInterface() :
@@ -82,6 +189,33 @@ PredictorNodeInterface::PredictorNodeInterface() :
     vision_sub = create_subscription<vision_msgs::msg::Detection2DArray>(
         "/vision/tracked", rclcpp::QoS(10), [this](const std::shared_ptr<vision_msgs::msg::Detection2DArray> msg) {
             /// NOTE: Whether to keep this gate control is still up for debate.
+            auto imu = get_imu(rclcpp::Time(msg->header.stamp));
+            auto detections = msg->detections;
+
+            tf2::Quaternion q;        
+            q.setRPY(
+                imu.roll,
+                imu.pitch,
+                imu.yaw
+            );
+            q.normalize();
+            Eigen::Quaterniond transform(q.w(), q.x(), q.y(), q.z());
+
+            for (auto& det: detections) {
+                for (auto& res: det.results) {
+                    Eigen::Vector3d position;
+                    tf2::fromMsg(res.pose.pose, position);
+                    res.pose.set__pose(
+                        geometry_msgs::msg::Pose()
+                        .set__position(tf2::toMsg(transform * position))
+                        .set__orientation(geometry_msgs::msg::Quaternion()
+                            .set__x(res.pose.pose.orientation.x + imu.roll)
+                            .set__y(res.pose.pose.orientation.y + imu.pitch)
+                            .set__z(res.pose.pose.orientation.z + imu.yaw)
+                        )
+                    );
+                }
+            }
 
             image_annotations = std::make_shared<foxglove_msgs::msg::ImageAnnotations>();
             image_annotations->set__circles(std::vector<foxglove_msgs::msg::CircleAnnotation>(
@@ -212,31 +346,32 @@ rm_msgs::msg::Imu PredictorNodeInterface::get_imu(rclcpp::Time stamp) {
         .set__yaw(imu_before->imu.yaw + (imu_after->imu.yaw - imu_before->imu.yaw) * alpha);
 }
 
-uint8_t PredictorNodeInterface::get_vision_follow_id() {
-    return vision_follow_id;
+rm_msgs::msg::State PredictorNodeInterface::get_robot_state() {
+    return robot_state;
 }
 
-uint8_t PredictorNodeInterface::get_robot_id() {
-    return robot_state->robot_id;
+
+uint8_t PredictorNodeInterface::get_vision_follow_id() {
+    return vision_follow_id;
 }
 
 BallisticResult PredictorNodeInterface::solve_ballestic(geometry_msgs::msg::Point point) {
     return ballestic_solver->query(point.x, point.y, point.z);
 }
 
-void PredictorNodeInterface::send_command(const rm_msgs::msg::Imu& imu, uint8_t control_mode, bool booster_enable) {
+void PredictorNodeInterface::send_command(const rm_msgs::msg::Imu& imu, uint8_t gimbal_mode, bool booster_mode) {
     if (robot_state->vision_follow_enable) {
         control_pub->publish(rm_msgs::msg::Control()
             .set__imu(imu)
-            .set__control_mode(control_mode)
-            .set__booster_enable(booster_enable)
+            .set__gimbal_mode(gimbal_mode)
+            .set__booster_mode(booster_mode)
             .set__vision_follow_id(vision_follow_id)
         );
     } else {
         control_pub->publish(rm_msgs::msg::Control()
             .set__imu(robot_state->imu)
-            .set__control_mode(0)
-            .set__booster_enable(false)
+            .set__gimbal_mode(0)
+            .set__booster_mode(0)
             .set__vision_follow_id(15)
         );
     }
@@ -285,11 +420,11 @@ void PredictorNodeInterface::annotate(const geometry_msgs::msg::Pose& poses) {
     annotate(std::vector<geometry_msgs::msg::Pose>(1, poses));
 }
 
-std::shared_ptr<std::function<void(std::shared_ptr<vision_msgs::msg::Detection2DArray>)>>
+std::shared_ptr<std::function<void(std::shared_ptr<vision_msgs::msg::Detection2DArray)>>
 PredictorNodeInterface::register_callback(
-    const std::function<void(std::shared_ptr<vision_msgs::msg::Detection2DArray>)>& callback) {
+    const std::function<void(std::shared_ptr<vision_msgs::msg::Detection2DArray)>& callback) {
     auto callback_shared {std::make_shared<std::function<
-        void(std::shared_ptr<vision_msgs::msg::Detection2DArray>)>>(callback)};
+        void(std::shared_ptr<vision_msgs::msg::Detection2DArray)>>(callback)};
     vision_callback = callback_shared; // implicit conversion
     return callback_shared;
 }

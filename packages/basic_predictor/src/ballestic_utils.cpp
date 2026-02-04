@@ -65,7 +65,7 @@ void BallisticSolver::build(double v, double k) {
     std::vector<double> t_table(LUT_size);
 
     std::vector<double> theta_samples(NUM_THETA_SAMPLES);
-    for (int i = 0; i < NUM_THETA_SAMPLES; i++) {
+    for (size_t i = 0; i < NUM_THETA_SAMPLES; i++) {
         theta_samples[i] =  M_PI_2*0.83 - M_PI*0.83 * (double)i / (double)(NUM_THETA_SAMPLES - 1);
     }
 
