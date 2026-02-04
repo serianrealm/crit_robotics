@@ -1,14 +1,14 @@
 """Common ROS 2 node interfaces for detector."""
 
 import os
-import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from abc import abstractmethod, ABC
 
 import cv2
-import torch
-import openvino as ov
 import numpy as np
+from scipy.spatial.transform import Rotation
+
 from rclpy.node import Node
 from rclpy.logging import RcutilsLogger
 from rclpy.qos import (
@@ -38,37 +38,61 @@ from vision_msgs.msg import (
     Detection2DArray
 )
 
-from ..runtime.models import Yolov10PoseModel
-from ..solutions.pose_estimate import pose_estimate
+from ..runtime.pipelines import Yolov10PosePipeline
 
 
-SMALL_ARMOR_POINTS: list[tuple[float, float, float]] = [
-    (-6.75e-2, -2.75e-2, 1e-6),
-    (-6.75e-2, 2.75e-2, 1e-6),
-    (6.75e-2, 2.75e-2, 1e-6),
-    (6.75e-2, -2.75e-2, 1e-6),
+GROUNDING_SMALL_ARMOR = [
+    (-0.0675, -0.027,  0.0036),
+    (-0.0675,  0.027, -0.0036),
+    ( 0.0675,  0.027, -0.0036),
+    ( 0.0675, -0.027,  0.0036),
 ]
-BIG_ARMOR_POINTS: list[tuple[float, float, float]] = []
-BASE_POINTS: list[tuple[float, float, float]] = []
 
-CLASS_TO_POINTS = {
-    1: BIG_ARMOR_POINTS,
-    6: BIG_ARMOR_POINTS,
-    2: SMALL_ARMOR_POINTS,
-    4: SMALL_ARMOR_POINTS,
-    5: BASE_POINTS,
-}
+GROUNDING_BIG_ARMOR = [
+    (-0.115, -0.029, -0.0038),
+    (-0.115,  0.029,  0.0038),
+    ( 0.115,  0.029,  0.0038),
+    ( 0.115, -0.029, -0.0038),
+]
 
-def cimage_to_cv2_bgr(cimage: Image) -> np.ndarray:
-    encoding = (cimage.encoding or "").lower()
-    height, width, step = int(cimage.height), int(cimage.width), int(cimage.step)
+ENERGY_ARMOR = [
+    ( 0.00, -0.85, 0.),
+    (-0.15, -0.70, 0.),
+    ( 0.00, -0.55, 0.),
+    ( 0.15, -0.70, 0.),
+]
+
+DRONE_ARMOR = [
+    (-0.025, -0.05, 0.),
+    (-0.025,  0.05, 0.),
+    ( 0.025,  0.05, 0.),
+    ( 0.025, -0.05, 0.),
+]
+
+OUTPOST_ARMOR = [
+    (-0.0675, -0.027, -0.0035),
+    (-0.0675,  0.027,  0.0035),
+    ( 0.0675,  0.027,  0.0035),
+    ( 0.0675, -0.027, -0.0035),
+]
+
+BASE_ARMOR = [
+    (-0.0675, -0.028, 0.),
+    (-0.0675,  0.028, 0.),
+    ( 0.0675,  0.028, 0.),
+    ( 0.0675, -0.028, 0.),
+]
+
+def camera_image_to_cv2(camera_image: Image) -> np.ndarray:
+    encoding = (camera_image.encoding or "").lower()
+    height, width, step = int(camera_image.height), int(camera_image.width), int(camera_image.step)
 
     if encoding in ("bgr8", "rgb8"):
         channels = 3
         image = np.ndarray(
             shape=(height, width, channels),
             dtype=np.uint8,
-            buffer=memoryview(cimage.data),
+            buffer=memoryview(camera_image.data),
             strides=(step, channels, 1),
         )
         if encoding == "rgb8":
@@ -80,7 +104,7 @@ def cimage_to_cv2_bgr(cimage: Image) -> np.ndarray:
         image = np.ndarray(
             shape=(height, width, channels),
             dtype=np.uint8,
-            buffer=memoryview(cimage.data),
+            buffer=memoryview(camera_image.data),
             strides=(step, channels, 1),
         )
         return cv2.cvtColor(
@@ -92,28 +116,17 @@ def cimage_to_cv2_bgr(cimage: Image) -> np.ndarray:
         image = np.ndarray(
             shape=(height, width),
             dtype=np.uint8,
-            buffer=memoryview(cimage.data),
+            buffer=memoryview(camera_image.data),
             strides=(step, 1),
         )
         return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
 
-    raise ValueError(f"Unsupported image encoding: {cimage.encoding!r}")
+    raise ValueError(f"Unsupported image encoding: {camera_image.encoding!r}")
 
 class DetectorNodeInterface(Node, ABC):
     """Base node that declares parameters up-front and exposes helpers."""
     node_name = "imagepipe"
 
-    # def __init_subclass__(cls, **kwargs):
-    #     super().__init_subclass__(**kwargs)
-
-    #     orig_init = cls.__init__
-
-    #     def __init__(self, *args, **kw):
-    #         orig_init(self, *args, **kw)
-    #         self.post_init()
-
-    #     cls.__init__ = __init__
-        
     def __init__(self):
         super().__init__(
             node_name=self.node_name,
@@ -121,16 +134,27 @@ class DetectorNodeInterface(Node, ABC):
         )
 
         self.image_subs = [
-            self.create_subscription(Image, f"{topic_prefix}/image_raw", partial(self.callback, topic_name=topic_prefix), 10)
-            for topic_prefix in self.get_parameter("subscriptions").value
+            self.create_subscription(
+                Image, 
+                f"{topic_prefix}/image_raw", 
+                partial(self.callback, topic_name=topic_prefix), 
+                10
+            ) for topic_prefix in self.get_parameter("subscriptions").value
         ]
 
         self.camera_info_subs = [
-            self.create_subscription(CameraInfo, f"{topic_prefix}/camera_info", partial(self.camera_info_callback, topic_name=topic_prefix), 10)
-            for topic_prefix in self.get_parameter("subscriptions").value
+            self.create_subscription(
+                CameraInfo, 
+                f"{topic_prefix}/camera_info", 
+                partial(self.camera_info_callback, topic_name=topic_prefix), 
+                10
+            ) for topic_prefix in self.get_parameter("subscriptions").value
         ]
 
-        self.camera_infos = {topic_prefix: None for topic_prefix in  self.get_parameter("subscriptions").value}
+        self.camera_infos = {
+            topic_prefix: None 
+            for topic_prefix in  self.get_parameter("subscriptions").value
+        }
 
     @property
     def logger(self) -> RcutilsLogger:
@@ -152,44 +176,21 @@ class YoloPoseDetector(DetectorNodeInterface):
     """"""
 
     def __init__(self):
-
-        self.model = Yolov10PoseModel.from_pretrained(
-            os.path.join(get_package_share_directory("imagepipe"),"yolo", "v10"),
-            use_safetensors=False,
-            weights_only=True,
-            dtype=torch.float32
-        ).export()
-
-        dummy_inputs = torch.randn((1, 3, 640, 640)).to(
-            self.model.device).to(self.model.dtype)
-        
-        for _ in range(2):
-            self.model(dummy_inputs) # dry run
-
-        intermediate_model = ov.convert_model(self.model, input=[dummy_inputs.shape] ,example_input=dummy_inputs)
-
-        core = ov.Core()
-        core.set_property({
-            "CACHE_DIR": os.path.expanduser("~/.cache/openvino"),
-            "PERFORMANCE_HINT": "LATENCY",
-        })
-
-        ppp = ov.preprocess.PrePostProcessor(intermediate_model)
-        ppp.input().tensor().set_element_type(ov.Type.u8).set_layout(
-            ov.Layout("NHWC")).set_color_format(ov.preprocess.ColorFormat.BGR)
-        ppp.input().model().set_layout(ov.Layout("NCHW"))
-        ppp.input().preprocess().convert_color(ov.preprocess.ColorFormat.RGB).convert_element_type(
-            ov.Type.f32).resize(ov.preprocess.ResizeAlgorithm.RESIZE_LINEAR).scale(255.0)
-        
-        intermediate_model = ppp.build()
-
-        self.ov_model = ov.compile_model(intermediate_model, device_name="AUTO")
-
         super().__init__()
+        
+        model_path = os.path.join(
+            get_package_share_directory("imagepipe"),
+            self.get_parameter("model_name_or_path").value
+        )
+
+        self.model = Yolov10PosePipeline(
+            model_path,
+            image_size=(640, 640)
+        )
 
         self.vision_raw_pub = self.create_publisher(
             Detection2DArray,
-            "vision/raw",
+            "vision/camera_optical_frame",
             QoSProfile(
                 history=QoSHistoryPolicy.KEEP_LAST,
                 depth=10,
@@ -197,114 +198,101 @@ class YoloPoseDetector(DetectorNodeInterface):
                 durability=QoSDurabilityPolicy.VOLATILE,
             )
         )
-        
-        # HACK:
-        # model_name_or_path = self.get_parameter_or("model_name_or_path", "namespace/model")
-        # if os.path.exists(os.path.join(get_package_share_directory("imagepipe"), model_name_or_path)):
-        #     model_name_or_path = os.path.join(get_package_share_directory("imagepipe"), model_name_or_path)
 
-    def callback(self, cimage:Image, topic_name:str|None=None):
-        """Convert incoming image/camera info into detection messages."""
+    def callback(self, camera_image:Image, topic_name:str|None=None):
         camera_info = self.get_camera_info(topic_name)
         if camera_info is None:
             self.logger.warning(f"Waiting for camera info {topic_name}/camera_info to synchronize", throttle_duration_sec=1.0, skip_first=True)
             return
 
-        pixel_values = cimage_to_cv2_bgr(cimage)[None, :]
+        img = camera_image_to_cv2(camera_image)
 
-        outputs = self.ov_model([pixel_values])[self.ov_model.output(0)]
+        prediction = self.model(img)
 
-        predictions = self.model.postprocess(outputs)
+        if len(prediction.shape) == 3:
+            prediction = prediction.reshape(-1, *prediction.shape[2:])
 
-        poses = self.estimate_poses_from_predictions(predictions, camera_info)
+        camera_matrix = np.array(camera_info.k, dtype=np.float64).reshape(3, 3)
+        distortion_coefficients = np.array(camera_info.d, dtype=np.float64)
 
-        self.publish_message_from_prediction(cimage.header, predictions, poses)
-
-    def estimate_poses_from_predictions(
-        self,
-        prediction,
-        cinfo,
-    ):
-        """
-        Estimate object poses from network prediction and camera info.
-
-        Args:
-            prediction: iterable, each element format:
-                [ ..., class_id, kp0_x, kp0_y, kp1_x, kp1_y, kp2_x, kp2_y, kp3_x, kp3_y, ... ]
-            cinfo: sensor_msgs.msg.CameraInfo
-
-        Returns:
-            poses: list of (position, orientation)
-        """
-
-        if prediction.ndim == 3 and prediction.shape[0] == 1:
-            prediction = prediction[0]
-
-        camera_matrix = np.array(cinfo.k, dtype=np.float64).reshape(3, 3)
-        distortion_coefficients = np.array(cinfo.d, dtype=np.float64)
-
-        poses = []
+        msg = Detection2DArray(header=camera_image.header)
 
         for pred in prediction:
-            if len(pred) < 14:
-                raise ValueError(f"Prediction length {len(pred)} < 14")
+            image_points = pred[6:14].reshape(-1, 2)
+            object_points = GROUNDING_SMALL_ARMOR
 
-            keypoints = pred[6:14].reshape(-1, 2)
-
-            class_id = int(pred[5])
-            object_points = np.asarray(CLASS_TO_POINTS.get(class_id, SMALL_ARMOR_POINTS), dtype=np.float32)
-
-            position, orientation = pose_estimate(
-                keypoints,
+            match int(pred[5]) % 10:
+                case 1:
+                    object_points = GROUNDING_BIG_ARMOR
+                case 5:
+                    object_points = ENERGY_ARMOR
+                case 6:
+                    object_points = DRONE_ARMOR
+                case 7:
+                    object_points = OUTPOST_ARMOR
+                case 8:
+                    object_points = BASE_ARMOR
+                case _:
+                    object_points = GROUNDING_SMALL_ARMOR
+            
+            
+            is_success, rvec, tvec = cv2.solvePnP(
                 object_points,
+                image_points,
                 camera_matrix,
                 distortion_coefficients,
+                flags=cv2.SOLVEPNP_IPPE
             )
+            
+            if not is_success:
+                self.logger.error(
+                    f"cv2.solvePnP failed for object_points={object_points}, \
+                    image_points={image_points}, \
+                    camera_matrix={camera_matrix.tolist()}, \
+                    dist_coeffs={distortion_coefficients.tolist()}.",
+                    throttle_duration_sec=3.0
+                )
+                continue
+            else:
+                point = tvec.reshape(-1)
+                position = Point(
+                    x=point[0],
+                    y=point[1],
+                    z=point[2]
+                )
 
-            if position is not None and orientation is not None:
-                poses.append((position, orientation))
+                quaternion = Rotation.from_rotvec(rvec.reshape(-1)).as_quat()
+                orientation=Quaternion(
+                    x=quaternion[0],
+                    y=quaternion[1],
+                    z=quaternion[2],
+                    w=quaternion[3]
+                )
 
-        return poses
-    
-    def publish_message_from_prediction(
-        self,
-        header,
-        prediction,
-        poses
-    ):
-        self.vision_raw_pub.publish(Detection2DArray(
-            header=header,
-            detections=[Detection2D(
-                header=header,
-                results=[ObjectHypothesisWithPose(
-                    hypothesis=ObjectHypothesis(
-                        class_id=str(int(pred[5])),
-                        score=float(pred[4])
-                    ),
-                    pose=PoseWithCovariance(
-                        pose=Pose(
-                            position=Point(
-                                x=float(pos[0]),
-                                y=float(pos[1]),
-                                z=float(pos[2])
-                            ),
-                            orientation=Quaternion(
-                                x=float(orient[0]),
-                                y=float(orient[1]),
-                                z=float(orient[2])
+                msg.detections.append(Detection2D(
+                    header=camera_image.header,
+                    results=[ObjectHypothesisWithPose(
+                        hypothesis=ObjectHypothesis(
+                            class_id=str(int(pred[5])),
+                            score=float(pred[4])
+                        ),
+                        pose=PoseWithCovariance(
+                            pose=Pose(
+                                position=position,
+                                orientation=orientation
                             )
                         )
+                    )],
+                    bbox=BoundingBox2D(
+                        center=Pose2D(
+                            position=Point2D(
+                                x=pred[0],
+                                y=pred[1]
+                            )
+                        ),
+                        size_x=pred[2],
+                        size_y=pred[3]
                     )
-                )],
-                bbox=BoundingBox2D(
-                    center=Pose2D(
-                        position=Point2D(
-                            x=float(pred[0]),
-                            y=float(pred[1])
-                        )
-                    ),
-                    size_x=float(pred[2]),
-                    size_y=float(pred[3])
-                )
-            ) for pred, (pos, orient) in zip(prediction, poses)]
-        ))
+                ))
+
+        self.vision_raw_pub.publish(msg)

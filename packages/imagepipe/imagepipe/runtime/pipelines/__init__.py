@@ -1,0 +1,1 @@
+from .pipeline_yolov10 import Yolov10PosePipeline

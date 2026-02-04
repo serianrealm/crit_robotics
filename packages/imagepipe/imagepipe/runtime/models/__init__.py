@@ -1,1 +1,1 @@
-from .yolov10 import *
+from .modeling_yolov10 import Yolov10PoseModel

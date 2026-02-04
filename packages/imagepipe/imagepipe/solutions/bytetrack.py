@@ -381,52 +381,6 @@ class ByteTrack:
         """
         self.frame_count += 1
 
-        # DEBUG:
-        # TODO: Create an empty matrix in all black
-
-        def _to_int_bbox(bbox: np.ndarray) -> tuple[int, int, int, int]:
-            arr = np.asarray(bbox).reshape(-1)
-            x1, y1, x2, y2 = arr[:4]
-            return int(x1), int(y1), int(x2), int(y2)
-
-        def _draw_bbox(img: np.ndarray, bbox: np.ndarray, color: tuple[int, int, int], label: str | None = None):
-            x1, y1, x2, y2 = _to_int_bbox(bbox)
-            cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
-            if label:
-                cv2.putText(img, label, (x1, max(0, y1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
-
-        bboxes_for_canvas: list[np.ndarray] = []
-        for det in detections:
-            if det.bbox is not None:
-                bboxes_for_canvas.append(np.asarray(det.bbox))
-
-        for idx, trk in reversed(list(enumerate(self.trackers))):
-            bbox = trk.predict()
-            if np.any(np.isnan(bbox)):
-                self.trackers.pop(idx)
-                continue
-            self.trackers[idx].bbox = bbox
-            bboxes_for_canvas.append(np.asarray(bbox))
-
-        if len(bboxes_for_canvas):
-            max_x = max(int(np.max(bbox[:4:2])) for bbox in bboxes_for_canvas)
-            max_y = max(int(np.max(bbox[1:4:2])) for bbox in bboxes_for_canvas)
-            width = max(1, max_x + 10)
-            height = max(1, max_y + 10)
-            image = np.zeros((height, width, 3), dtype=np.uint8)
-
-            for det in detections:
-                if det.bbox is not None:
-                    _draw_bbox(image, det.bbox, (80, 220, 255), "det")
-
-            for trk in self.trackers:
-                if trk.bbox is not None:
-                    label = f"id:{trk.id}" if trk.id is not None else "trk"
-                    _draw_bbox(image, trk.bbox, (255, 120, 60), label)
-
-            cv2.imshow("ByteTrack Debug", image)
-            cv2.waitKey(1)
-
         high_score_detections = [det for det in detections if det.score >= self.conf_thres]
         low_score_detections  = [det for det in detections if det.score <  self.conf_thres]
 

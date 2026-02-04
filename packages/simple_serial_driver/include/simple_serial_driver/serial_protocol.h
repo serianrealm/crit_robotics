@@ -15,7 +15,7 @@ struct autoaim_send_to_port_data_t{
     void fromControlMsg(const rm_msgs::msg::Control& msg){
         pitch = msg.imu.pitch;
         yaw = msg.imu.yaw;
-        flag = msg.booster_enable;
+        flag = ;
         vision_follow_id = msg.vision_follow_id;
         one_shot_num = 3;
         rate = 10;

@@ -8,7 +8,7 @@ import torchvision
 from torchvision.transforms.v2 import functional as F
 
 from PIL.Image import Image
-from ... import PreTrainedConfig, PreTrainedModel
+from .. import PreTrainedConfig, PreTrainedModel
 
 def initialize_weights(model):
     """Initialize model weights to random values."""
@@ -1068,42 +1068,6 @@ class v10Pose(Pose):
         self.cv2 = self.cv3 = nn.ModuleList([nn.Identity()] * self.nl)
 
 
-def non_max_suppresson(
-    prediction: torch.Tensor,
-    conf_thres: float = 0.25,
-    iou_thres: float = 0.45,
-    classes: torch.Tensor|None = None,
-    max_det: int = 300,
-):
-    """
-    Perform non-maximum suppression (NMS) on prediction results.
-
-    Applies NMS to filter overlapping bounding boxes based on confidence and IoU thresholds. Supports multiple detection
-    formats including standard boxes, rotated boxes, and masks.
-
-    Args:
-        prediction (np.ndarray): Predictions with shape (batch_size, num_classes + 4 + num_masks, num_boxes)
-            containing boxes, classes, and optional masks.
-        conf_thres (float): Confidence threshold for filtering detections. Valid values are between 0.0 and 1.0.
-        iou_thres (float): IoU threshold for NMS filtering. Valid values are between 0.0 and 1.0.
-        classes (list[int], optional): List of class indices to consider. If None, all classes are considered.
-        max_det (int): Maximum number of detections to keep per image.
-
-    Returns:
-        output (list[np.ndarray]): List of detections per image with shape (num_boxes, 6 + num_masks)
-            containing (x1, y1, x2, y2, confidence, class, mask1, mask2, ...).
-    """
-    # Checks
-    assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
-    assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
-    if classes is not None:
-        classes = torch.tensor(classes, dtype=int)
-    output = [pred[pred[:, 4] > conf_thres][:max_det] for pred in prediction]
-    if classes is not None:
-        output = [pred[(pred[:, 5:6] == classes).any(1)] for pred in output]
-    return [out[torchvision.ops.nms(out[:, 0:4], out[:, 4], iou_threshold=iou_thres)] for out in output]
-
-
 def xyxy2cxcywh(bbox: np.ndarray):
     """Convert bounding box from xyxy format to cxcywh format."""
     c_x = (bbox[..., 0] + bbox[..., 2]) / 2
@@ -1328,9 +1292,6 @@ class Yolov10PoseModel(PreTrainedModel):
         """
         bn = tuple(v for k, v in torch.nn.__dict__.items() if "Norm" in k)  # normalization layers, i.e. BatchNorm2d()
         return sum(isinstance(v, bn) for v in self.modules()) < thresh  # True if < 'thresh' BatchNorm layers in model
-
-    def preprocess(self, image: Image|np.ndarray):
-        return F.to_dtype(F.to_image(image), dtype=self.dtype, scale=True).unsqueeze(0).to(self.device).to(self.dtype)  # [1,3,H,W] float32 0~1
 
     def postprocess(self, prediction: tuple[torch.Tensor|np.ndarray, torch.Tensor|np.ndarray]|torch.Tensor|np.ndarray) -> np.ndarray:
         if isinstance(prediction, tuple):

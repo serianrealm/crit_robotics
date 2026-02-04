@@ -353,7 +353,6 @@ class PreTrainedConfig:
         cache_dir: str | os.PathLike | None = None,
         force_download: bool = False,
         local_files_only: bool = False,
-        token: str | bool | None = None,
         revision: str = "main",
         **kwargs,
     ) -> SpecificPreTrainedConfigType:

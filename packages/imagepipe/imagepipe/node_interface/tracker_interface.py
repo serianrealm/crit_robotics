@@ -2,9 +2,8 @@
 
 from abc import abstractmethod, ABC
 
-import cv2
+from scipy.spatial.transform import Rotation
 from rclpy.node import Node
-from rclpy.time import Time
 from rclpy.logging import RcutilsLogger
 from rclpy.qos import (
     QoSProfile,
@@ -12,21 +11,8 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
     QoSDurabilityPolicy,
 )
-from geometry_msgs.msg import (
-    Point,
-    Quaternion,
-    Pose,
-    PoseWithCovariance
-)
-from vision_msgs.msg import (
-    Pose2D,
-    Point2D,
-    BoundingBox2D,
-    ObjectHypothesis,
-    ObjectHypothesisWithPose,
-    Detection2D,
-    Detection2DArray
-)
+import tf2_ros
+from vision_msgs.msg import Detection2DArray
 
 from ..solutions.bytetrack import TrackingObject, ByteTrack
 import numpy as np
@@ -60,6 +46,11 @@ class TrackerNodeInterface(Node, ABC):
             automatically_declare_parameters_from_overrides=True
         )
 
+        self.tf_buffer = tf2_ros.Buffer(cache_time=1.0)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+        self.stamp = None
+
         self.vision_raw_sub = self.create_subscription(
             Detection2DArray,
             "vision/raw",
@@ -84,20 +75,29 @@ class TrackerNodeInterface(Node, ABC):
         )
 
     def callback(self, msg: Detection2DArray):
-        raw_detections = [TrackingObject(
-            class_id=int(float(det.results[0].hypothesis.class_id)) % 10,
-            score=float(det.results[0].hypothesis.score),
-            bbox=cxcywh2xyxy(np.array([det.bbox.center.position.x, det.bbox.center.position.y, det.bbox.size_x, det.bbox.size_y])),
-            message=det
-        ) for det in msg.detections]
+        transform = self.tf_buffer.lookup_transform(
+            target_frame="base_link",
+            source_frame=msg.header.frame_id,
+            time=msg.header.stamp
+        ).transform.R
+
+        raw_detections = []
+        for det in msg.detections:
+            det.pose.pose.orientation = Rotation.from_matrix(
+                transform * Rotation.from_quat(det.pose.pose.orientation).as_matrix()).as_quat()
+            raw_detections.append(TrackingObject(
+                class_id=int(float(det.results[0].hypothesis.class_id)) % 10,
+                score=float(det.results[0].hypothesis.score),
+                bbox=cxcywh2xyxy(np.array([det.bbox.center.position.x, det.bbox.center.position.y, det.bbox.size_x, det.bbox.size_y])),
+                msg=det
+            ))
 
         trackers = self.update(raw_detections)
 
         tracked_detections = []
         for trk in trackers:
-            msg = trk.message
-            msg.id = str(int(trk.id))
-            tracked_detections.append(msg)
+            trk.msg.id = trk.id
+            tracked_detections.append(trk.msg)
 
         self.vision_tracked_pub.publish(Detection2DArray(
             header=msg.header,
@@ -121,8 +121,8 @@ class MotTracker(TrackerNodeInterface):
         
         self.mot_tracker = ByteTrack(
             min_hits=3,
-            iou_thres=0.3,
-            conf_thres=0.3
+            iou_thres=0.25,
+            conf_thres=0.5
         )
 
     def update(self, detections):
