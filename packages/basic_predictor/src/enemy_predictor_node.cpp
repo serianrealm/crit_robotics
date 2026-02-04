@@ -116,10 +116,6 @@ void EnemyPredictor::initCommandParams() {
 }
 
 void EnemyPredictor::detection_callback(const vision_msgs::msg::Detection2DArray::SharedPtr detection_msg){
-    //if(visualize_.dist_coeffs.empty() || visualize_.armor_img.empty()){
-    //    RCLCPP_WARN(get_logger(), "Empty Image Messages");
-    //    return;
-    //}
 
     std::vector<Detection, Eigen::aligned_allocator<Detection>> current_detections_{};
     std::vector<int>active_enemies_idx{};

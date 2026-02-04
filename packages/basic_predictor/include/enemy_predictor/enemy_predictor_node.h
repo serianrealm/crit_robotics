@@ -114,9 +114,6 @@ public:
     struct Enemy {
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
         int class_id = -1;
-        int mode = -1;
-        int best_armor = -1; // 最佳装甲板phase_id for ckf
-        int best_armor_idx = -1;
         std::vector<int> armor_tracker_ids;
         Eigen::Vector3d center = Eigen::Vector3d::Zero();
         std::vector<double> radius{0.25, 0.25};
@@ -124,43 +121,22 @@ public:
         bool is_active = false;
         bool is_valid = false;
         int missing_frame = 0;
-        double yaw = 0.0; 
 
         EnemyCKF enemy_ckf;
         
-        double last_yaw = 0.0;
-        
         Enemy() = default; 
 
-        void add_armor(int tracker_id) {
-            if (std::find(armor_tracker_ids.begin(), 
-                         armor_tracker_ids.end(), tracker_id) == armor_tracker_ids.end()) {
-                armor_tracker_ids.push_back(tracker_id);
-            }
-        }
-        
-        void remove_armor(int tracker_id) {
-            auto it = std::find(armor_tracker_ids.begin(),
-                               armor_tracker_ids.end(), tracker_id);
-            if (it != armor_tracker_ids.end()) {
-                armor_tracker_ids.erase(it);
-            }
-        }
         void reset(){
-           mode = -1; 
            center = Eigen::Vector3d::Zero();
            radius_cal = false;
            is_active = false;
            is_valid = false;
            missing_frame = 0;
-           last_yaw = 0.0;
-           yaw = 0.0; 
            enemy_ckf.initializeCKF();
            std::vector<double> radius{0.25, 0.25}; // 保留历史数据，越打越准可行吗？？
         }
     };
     struct Command{
-        rm_msgs::msg::RmRobot robot;
         double high_spd_rotate_thresh = 0.0;
         double rotate_thresh = 0.0;
         double yaw_thresh = 0.0;
@@ -176,32 +152,18 @@ public:
         std::vector<double> stored_pitch_offsets{};
     }cmd;
     struct EnemyPredictorNodeParams{
-        std::string detection_name;
-        std::string robot_name;
+        
         std::string target_frame;
         std::string camera_name;
-        bool enable_imshow;
-        bool debug;
-        VisionMode mode;
         bool right_press;  // 按下右键
-        CameraMode cam_mode;
-        RobotIdDji robot_id;
-        RmcvId rmcv_id;
-    
-        double size_ratio_thresh;  // 切换整车滤波跟踪装甲板的面积阈值/切换选择目标的面积阈值
-        
         // 火控参数
         double change_armor_time_thresh;
         double dis_yaw_thresh;
         double gimbal_error_dis_thresh;            // 自动发弹阈值，限制云台误差的球面意义距离
         double pitch_error_dis_thresh;             // 自动发弹阈值，目标上下小陀螺时pitch限制
-        bool choose_enemy_without_autoaim_signal;  // 在没有收到右键信号的时候也选择目标（调试用)
         // 延迟参数
         double response_delay;  // 系统延迟(程序+通信+云台响应)
         double shoot_delay;     // 发弹延迟
-    
-        bool test_ballistic;
-        bool follow_without_fire;
     
         double pitch_offset_high_hit_low;  //deg
         double pitch_offset_low_hit_high;  //deg
@@ -211,10 +173,7 @@ public:
     ArmorTracker armor_tracker;
     std::vector<ArmorTracker> armor_trackers_;
     std::array<Enemy, MAX_ENEMIES> enemies_;
-    
-    RmcvId self_id;
-    double yaw_now = 0.0;
-   
+ 
     double timestamp;
     
     // 可视化相关
@@ -295,7 +254,6 @@ private:
     rclcpp::Publisher<rm_msgs::msg::Control>::SharedPtr control_pub;
 
     rm_msgs::msg::Control::SharedPtr control_msg;
-    std::mutex control_msg_mutex;
 
     std::shared_ptr<tf2_ros::Buffer> tf2_buffer;
     std::shared_ptr<tf2_ros::TransformListener> tf2_listener;

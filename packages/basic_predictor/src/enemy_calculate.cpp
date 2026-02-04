@@ -192,9 +192,6 @@ void EnemyPredictor::updateEnemy(Enemy& enemy, double timestamp, std::vector<int
         findBestPhaseForEnemy(enemy, *tracker, active_armors_this_enemy);
         //RCLCPP_INFO(get_logger(), "Armor(%d), Phase_id = %d, area_2d = %lf", tracker->tracker_idx, tracker->phase_id, tracker->area_2d);
     }
-    
-    //calculateEnemyCenterAndRadius(enemy, timestamp, active_armors_this_enemy);
-    //enemy.enemy_ckf.radius = enemy.radius;
     if(!enemy.enemy_ckf.is_initialized_){
         enemy.enemy_ckf.initializeCKF();
         enemy.enemy_ckf.reset(active_armors_this_enemy[0] -> position, active_armors_this_enemy[0] -> yaw, active_armors_this_enemy[0] -> phase_id, timestamp);
@@ -279,246 +276,15 @@ void EnemyPredictor::EnemyManage(double timestamp, rclcpp::Time timestamp_image,
     }
     getCommand(enemies_[target_enemy_idx], timestamp, timestamp_image, active_armor_idx);
 }
-//void EnemyPredictor::calculateEnemyCenterAndRadius(Enemy& enemy, double timestamp, std::vector<ArmorTracker*> active_armors_this_enemy) {
-//
-//    if (active_armors_this_enemy.empty()){
-//        return;
-//    }
-//    if (active_armors_this_enemy.size() == 1) {
-//        // 单个装甲板：基于相位推测中心
-//        double phase_angle = active_armors_this_enemy[0]->phase_id * (M_PI / 2.0);
-//        double center_yaw = active_armors_this_enemy[0]->yaw - phase_angle + M_PI;
-//        enemy.center = active_armors_this_enemy[0]->position + enemy.radius[active_armors_this_enemy[0]->phase_id % 2] * 
-//                      Eigen::Vector3d(std::cos(center_yaw), -std::sin(center_yaw), 0);  //认为armor_z == enemy_z ? ? ?
-//        //RCLCPP_INFO(get_logger(), "Calculate center = %f, %f, %f", enemy.center(0), enemy.center(1), enemy.center(2));
-//    }
-//    else if (active_armors_this_enemy.size() >= 2) {
-//    // 最小二乘法求同心圆心（处理>=2个装甲板）
-//    // 使用装甲板的法向量（垂直于装甲板平面）和位置信息
-//    std::vector<Eigen::Vector2d> armor_points;      // 装甲板位置（2D）
-//    std::vector<Eigen::Vector2d> normal_vectors;    // 法向量（垂直于装甲板平面向外）
-//    std::vector<int> phase_ids;                     // 相位ID
-//    double z_sum = 0.0;                             // Z坐标总和
-//
-//    // 收集所有装甲板的信息
-//    for (const auto& armor_ptr : active_armors_this_enemy) {
-//        ArmorTracker& armor = *armor_ptr;
-//
-//        // 装甲板位置（XY平面）
-//        armor_points.emplace_back(armor.position.x(), armor.position.y());
-//
-//        // 计算法向量：yaw是垂直装甲板平面的朝向角
-//        // cos(yaw), -sin(yaw) (垂直armor平面向内)
-//        Eigen::Vector2d normal(std::cos(armor.yaw), -std::sin(armor.yaw));
-//        normal_vectors.push_back(normal.normalized());
-//
-//        // 相位ID
-//        phase_ids.push_back(armor.phase_id);
-//
-//        z_sum += armor.position.z();
-//    }
-//
-//    // 最小二乘法求解圆心
-//    if (armor_points.size() >= 2) {
-//        //  A^T * A 和 A^T * b
-//        // 对于每个装甲板，约束方程为：法向量与圆心到装甲板向量的叉积为0
-//        // 即：n_i × (center - p_i) = 0
-//        // 展开：-n_i.y * center.x + n_i.x * center.y = -n_i.y * p_i.x + n_i.x * p_i.y
-//        Eigen::Matrix2d ATA = Eigen::Matrix2d::Zero();
-//        Eigen::Vector2d ATb = Eigen::Vector2d::Zero();
-//
-//        for (size_t i = 0; i < armor_points.size(); ++i) {
-//            double nx = normal_vectors[i].x();
-//            double ny = normal_vectors[i].y();
-//            double px = armor_points[i].x();
-//            double py = armor_points[i].y();
-//
-//            // 每个约束方程的权重（可以根据装甲板质量调整）
-//            double weight = 1.0;
-//
-//            ATA(0, 0) += weight * ny * ny;          // (-ny)^2
-//            ATA(0, 1) += weight * (-ny) * nx;       // (-ny) * nx
-//            ATA(1, 0) += weight * nx * (-ny);       // nx * (-ny)
-//            ATA(1, 1) += weight * nx * nx;          // nx^2
-//
-//            double bi = -ny * px + nx * py;
-//            ATb(0) += weight * (-ny) * bi;
-//            ATb(1) += weight * nx * bi;
-//        }
-//
-//        // 求解方程组 (ATA * center_2d = ATb)
-//        double det = ATA.determinant();
-//
-//        if (std::abs(det) > 1e-8) {
-//            Eigen::Vector2d center_2d = ATA.inverse() * ATb;
-//
-//            // 对于两个装甲板的情况，进行特殊处理
-//            if (armor_points.size() == 2) {
-//                // 检查两个装甲板是否近似90度
-//                double angle_between = std::acos(normal_vectors[0].dot(normal_vectors[1]));
-//
-//                // 如果两个法向量夹角接近180度（平行），说明估计不可靠
-//                if (std::abs(angle_between) > M_PI * 0.9) {
-//                    RCLCPP_WARN(get_logger(), "Two armor normals are nearly parallel, estimation may be inaccurate");
-//                }
-//
-//                // 计算圆心到两个装甲板的距离
-//                double dist1 = (center_2d - armor_points[0]).norm();
-//                double dist2 = (center_2d - armor_points[1]).norm();
-//
-//                // 检查圆心是否在法线正方向上
-//                Eigen::Vector2d v1 = center_2d - armor_points[0];
-//                Eigen::Vector2d v2 = center_2d - armor_points[1];
-//                double dot1 = v1.dot(normal_vectors[0]);
-//                double dot2 = v2.dot(normal_vectors[1]);
-//
-//                // 如果点积为负，说明圆心在法线反方向，需要调整
-//                if (dot1 < 0 || dot2 < 0) {
-//                    RCLCPP_INFO(get_logger(), "Center appears to be behind armor planes, adjusting...");
-//
-//                    // 使用法线交点法
-//                    Eigen::Matrix2d A;
-//                    A << normal_vectors[0].x(), -normal_vectors[1].x(),
-//                         normal_vectors[0].y(), -normal_vectors[1].y();
-//
-//                    Eigen::Vector2d b_vec = armor_points[1] - armor_points[0];
-//                    double det_A = A.determinant();
-//
-//                    if (std::abs(det_A) > 1e-8) {
-//                        Eigen::Vector2d t = A.inverse() * b_vec;
-//                        Eigen::Vector2d intersection = armor_points[0] + t(0) * normal_vectors[0];
-//
-//                        // 检查交点是否在法线正方向
-//                        Eigen::Vector2d test_v1 = intersection - armor_points[0];
-//                        Eigen::Vector2d test_v2 = intersection - armor_points[1];
-//
-//                        if (test_v1.dot(normal_vectors[0]) > 0 && test_v2.dot(normal_vectors[1]) > 0) {
-//                            center_2d = intersection;
-//                            RCLCPP_INFO(get_logger(), "Using intersection method for center");
-//                        }
-//                    }
-//                }
-//            }
-//
-//            // 验证圆心合理性
-//            bool center_valid = true;
-//            std::vector<double> radii;
-//            std::vector<double> dot_products;
-//
-//            for (size_t i = 0; i < armor_points.size(); ++i) {
-//                Eigen::Vector2d v = center_2d - armor_points[i];
-//                double dot = v.dot(normal_vectors[i]);
-//                double radius = v.norm();
-//
-//                radii.push_back(radius);
-//                dot_products.push_back(dot);
-//
-//                // 圆心应该在法线正方向上（点积为正）
-//                if (dot < 0.01) {
-//                    center_valid = false;
-//                    RCLCPP_INFO(get_logger(), "Center validation failed: armor %zu dot=%.3f", i, dot);
-//                }
-//
-//                // 半径应该在合理范围内
-//                if (radius < 0.1 || radius > 0.5) {
-//                    center_valid = false;
-//                    RCLCPP_INFO(get_logger(), "Center validation failed: armor %zu radius=%.3f", i, radius);
-//                }
-//            }
-//
-//            if (center_valid) {
-//                double z = z_sum / active_armors_this_enemy.size();
-//                enemy.center = Eigen::Vector3d(center_2d.x(), center_2d.y(), z);
-//
-//                //visualizeAimCenter(enemy.center, cv::Scalar(255, 0, 0));
-//
-//                // 计算每个装甲板的半径，并根据相位ID更新对应的半径
-//                std::vector<int> valid_radii_count = {0, 0};
-//
-//                for (size_t i = 0; i < active_armors_this_enemy.size(); ++i) {
-//                    const auto& armor_ptr = active_armors_this_enemy[i];
-//                    double r = (enemy.center - armor_ptr->position).norm();
-//                    //RCLCPP_INFO(get_logger(), "armor %d position : %lf, %lf, %lf", i, armor_ptr->position(0),armor_ptr->position(1),armor_ptr->position(2));
-//                    // 检查半径是否在合理范围内
-//                    if (r >= 0.15 && r <= 0.4) {
-//                        int phase_index = phase_ids[i] % 2;
-//
-//                        enemy.radius[phase_index] = 0.7 * enemy.radius[phase_index] + 0.3 * r;
-//
-//                        valid_radii_count[phase_index]++;
-//
-//                        //RCLCPP_INFO(get_logger(), 
-//                        //    "Armor %zu (phase %d): r=%.3f, updated radius[%d]=%.3f",
-//                        //    i, phase_ids[i], r, phase_index, enemy.radius[phase_index]);
-//                    }
-//                }
-//                if(valid_radii_count[0] > 0 && valid_radii_count[1] > 0){
-//                    enemy.radius_cal = true;
-//                }
-//                //RCLCPP_INFO(get_logger(), 
-//                //    "Calculated enemy center: (%.3f, %.3f, %.3f)",
-//                //    enemy.center.x(), enemy.center.y(), enemy.center.z());
-//
-//            } else {
-//                RCLCPP_WARN(get_logger(), 
-//                    "Calculated center failed validation checks");
-//            }
-//
-//        } else {
-//            RCLCPP_WARN(get_logger(), 
-//                "Matrix determinant too small (det=%.2e), cannot solve for center", det);
-//        }
-//    }
-//}
-//    
-//    // =================== 简化版的可视化代码 ===================
-//    
-//    // 清空之前的标记
-//    enemy_markers_.markers.clear();
-//    
-//    // 1. 创建球体标记（表示敌人中心）
-//    visualization_msgs::msg::Marker sphere_marker;
-//    sphere_marker.header.frame_id = "odom";  // 使用正确的坐标系
-//    sphere_marker.header.stamp = this->now();  // 使用当前时间
-//    
-//    sphere_marker.ns = "enemy_centers";
-//    sphere_marker.id = enemy.class_id;  // 使用敌人ID
-//    
-//    sphere_marker.type = visualization_msgs::msg::Marker::SPHERE;
-//    sphere_marker.action = visualization_msgs::msg::Marker::ADD;
-//    
-//    sphere_marker.pose.position.x = enemy.center.x();
-//    sphere_marker.pose.position.y = enemy.center.y();
-//    sphere_marker.pose.position.z = enemy.center.z();
-//    sphere_marker.pose.orientation.w = 1.0;
-//    
-//    sphere_marker.scale.x = 0.1;  // 直径
-//    sphere_marker.scale.y = 0.1;
-//    sphere_marker.scale.z = 0.1;
-//    
-//    // 设置颜色（红色表示敌人中心）
-//    sphere_marker.color.r = 1.0;
-//    sphere_marker.color.g = 0.0;
-//    sphere_marker.color.b = 0.0;
-//    sphere_marker.color.a = 0.8;  // 半透明
-//    
-//    sphere_marker.lifetime = rclcpp::Duration::from_seconds(0.2);  // 200ms生命周期
-//    
-//    // 将球体标记添加到数组
-//    enemy_markers_.markers.push_back(sphere_marker);
-
-//}
     
 void EnemyPredictor::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& tracker, std::vector<ArmorTracker*> active_armors_this_enemy) {
 
     if(!enemy.is_valid){
         tracker.phase_id = 0;
-        enemy.yaw = tracker.yaw;
         enemy.is_valid = true; // 每个enemy有了第一个armor时，第一个armor phase_id = 0, enemy.is_valid = true
         RCLCPP_INFO(get_logger(), "This enemy (%d) has its first armor, Give Phase_id %d",enemy.class_id, tracker.phase_id);
         return;
     }
-    //std::vector<double> scores = {0.0, 0.0, 0.0, 0.0};
     bool by_relative = false;
     int candidate_phase = -1;
     for(size_t i = 0; i < active_armors_this_enemy.size(); i++){
@@ -544,8 +310,6 @@ void EnemyPredictor::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& tracker, 
     }
     if(!by_relative){
         
-        //RCLCPP_INFO(get_logger(), "enemy.enemy_ckf.Xe(4) = %lf", enemy.enemy_ckf.Xe(4));
-        //RCLCPP_INFO(get_logger(), "tracker.yaw = %lf", tracker.yaw);
         double angle_diff = normalize_angle(tracker.yaw - normalize_angle(enemy.enemy_ckf.Xe(4)));
 
         if(angle_diff >= -M_PI/4 && angle_diff < M_PI/4){
@@ -574,125 +338,6 @@ void EnemyPredictor::findBestPhaseForEnemy(Enemy& enemy, ArmorTracker& tracker, 
         tracker.phase_id = candidate_phase;
     }
     RCLCPP_INFO(get_logger(), "Give phase_id : %d", tracker.phase_id);
-   // 收集已使用的相位
-    //std::set<int> used_phases;
-    //for(int idx : active_armor_idx){
-    //    // collect active_armor's already phase_id [in this frame]
-    //    if(armor_trackers_[idx].armor_class_id % 10 == enemy.class_id && 
-    //       armor_trackers_[idx].phase_id != -1){
-    //        used_phases.insert(armor_trackers_[idx].phase_id);
-    //    }
-    //}
-  
-    //if(used_phases.empty()){
-    //    tracker.phase_id = 0;
-    //    RCLCPP_INFO(get_logger(), "This enemy has no armor, give phase_id 0");
-    //    return;
-    //}
-    //double min_cost = 1000.0;
-    //double second_min_cost = 1000.0;
-    //int best_phase = -1;
-    //int second_best_phase = -1;
-   
-    // 简易匈牙利算法
-    //for (int phase = 0; phase < 4; ++phase) {
-//
-    //    double total_cost = 0.0;
-//
-    //    double phase_angle = phase * (M_PI / 2.0);
-    //    double expected_yaw = enemy.yaw + phase_angle;
-    //    
-    //    Eigen::Vector3d expected_pos = enemy.center + enemy.radius[phase % 2] * 
-    //                                  Eigen::Vector3d(-std::cos(expected_yaw), 
-    //                                                 std::sin(expected_yaw), 
-    //                                                 0.0);
-    //    double distance = (tracker.position - expected_pos).norm();
-    //
-    //    // 使用sigmoid函数归一化到[0, 1]
-    //    // 参数：0.3表示30cm时成本为0.5  adjust it later !!!
-    //    // 1.position cost
-    //    double normalized_cost = 1.0 / (1.0 + exp(-10.0 * (distance - 0.3)));
-//
-    //    total_cost += 0.5 *normalized_cost;
-//
-    //    double angle_diff = std::atan2(std::sin(expected_yaw - tracker.yaw),
-    //                               std::cos(expected_yaw - tracker.yaw));
-    //
-    //    // 取绝对值并归一化到[0, 1]
-    //    // 2.yaw cost
-    //    double normalized_diff = std::abs(angle_diff) / M_PI;
-//
-    //    total_cost += 0.3 *normalized_diff* normalized_diff;
-    //    // 3.相位冲突 cost
-    //    if (used_phases.find(phase) != used_phases.end()) {
-    //        total_cost += 0.2 * 1.0; // 相位已占用，增加成本
-    //    }
-    //    if (phase == tracker.phase_id){
-    //        total_cost*= 0.8;
-    //    }
-    //    if(total_cost < min_cost){
-    //        second_min_cost = min_cost;
-    //        second_best_phase = best_phase;
-//
-    //        min_cost = total_cost;
-    //        best_phase = phase;
-    //    }
-    //    else if(total_cost < second_min_cost){
-    //        second_min_cost = total_cost;
-    //        second_best_phase = phase;
-    //    }
-    //}
-    //RCLCPP_INFO(get_logger(), "Finish Xiongyali");
-    //tracker.phase_conf = 1 - min_cost;
-    //// 一致性奖励
-    //double expected_yaw = enemy.yaw + best_phase * (M_PI / 2.0);
-    //Eigen::Vector3d expected_pos = enemy.center + enemy.radius[best_phase % 2] * 
-    //                              Eigen::Vector3d(-std::cos(expected_yaw), 
-    //                                             std::sin(expected_yaw), 
-    //                                             0.0);
-    //double position_error = (tracker.position - expected_pos).norm();
-    //
-    //if (position_error < 0.07) { // 10cm以内认为很匹配  adjust it later !!!
-    //    tracker.phase_conf = std::min(tracker.phase_conf + 0.1, 1.0);
-    //}
-    //
-    //if(used_phases.find(best_phase) == used_phases.end()){
-    //    tracker.phase_id = best_phase;
-    //    RCLCPP_INFO(get_logger(), "assigned to enemy , phase_id %d: ", best_phase);
-    //}
-    //else{
-    //    RCLCPP_INFO(get_logger(), "Conflict Phase_id!!!! %d", best_phase);
-    //    for(int idx : active_armor_idx){
-    //        if(armor_trackers_[idx].armor_class_id % 10 == enemy.class_id && armor_trackers_[idx].phase_id == best_phase){
-    //            if(armor_trackers_[idx].phase_conf < tracker.phase_conf){
-    //               tracker.phase_id = best_phase;
-    //               // 冲突的tracker, 若conf不如新armor, phase_id设置为-1 TO DO : 对原来conf更低的tracker处理phase_id
-    //               armor_trackers_[idx].phase_id = -1;
-    //            }else{
-    //               tracker.phase_id = second_best_phase;
-    //            }
-    //        }
-    //    }
-    //}
-    // 所有相位都被使用，基于距离选择
-    //double min_distance = std::numeric_limits<double>::max();
-    //int best_phase = 0;
-    //
-    //for (int phase = 0; phase < 4; ++phase) {
-    //    double phase_angle = phase * (M_PI / 2.0);
-    //    double expected_yaw = enemy.yaw + phase_angle - M_PI;
-    //    
-    //    Eigen::Vector3d expected_pos = enemy.center + enemy.radius * 
-    //                                  Eigen::Vector3d(std::cos(expected_yaw), 
-    //                                                 std::sin(expected_yaw), 
-    //                                                 tracker.position.z());
-    //    
-    //    double distance = (tracker.position - expected_pos).norm();
-    //    if (distance < min_distance) {
-    //        min_distance = distance;
-    //        best_phase = phase;
-    //    }
-    //}
 }
 int EnemyPredictor::ChooseMode(Enemy &enemy, double timestamp){
     if(abs(enemy.enemy_ckf.Xe(5)) > cmd.high_spd_rotate_thresh){
@@ -712,7 +357,7 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
 
     cmd.target_enemy_idx = enemy.class_id -1;
     cmd.last_target_enemy_idx = cmd.target_enemy_idx;
-    //RCLCPP_INFO(get_logger(),"cmd.last_target_enemy_idx:%d",cmd.last_target_enemy_idx);
+
     auto predict_func_double = [this, &enemy](ArmorTracker& tracker, double time_offset, double timestamp) -> Eigen::Vector3d{
         return FilterManage(enemy, time_offset, tracker, timestamp);
     };
@@ -728,7 +373,7 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
             active_trackers.push_back(&armor_trackers_[idx]);
         }
     }
-    // Visualize for Debug (rviz2)
+    //------------------- Visualize for Debug (rviz2) -------------------------
     enemy_markers_.markers.clear();
     for(ArmorTracker* tracker : active_trackers){
         visualization_msgs::msg::Marker yaw_marker;
@@ -1355,36 +1000,8 @@ void EnemyPredictor::create_new_tracker(const Detection &detection,double timest
     active_armor_idx.push_back(armor_trackers_.size()); // 先后push_back的顺序
     
     armor_trackers_.push_back(new_tracker);
-    //findBestPhaseForEnemy(enemies_[new_tracker.armor_class_id - 1], new_tracker, active_armor_idx);
 }
-//int EnemyPredictor::estimatePhaseFromPosition(const Enemy& enemy, const ArmorTracker& tracker) {
-//    
-//    double relative_angle = normalize_angle(tracker.yaw - enemy.yaw);
-//    
-//    int phase = 0;
-//    if (relative_angle >= -M_PI/4 && relative_angle < M_PI/4) {
-//        phase = 0;  // 前
-//    } else if (relative_angle >= M_PI/4 && relative_angle < 3*M_PI/4) {
-//        phase = 1;  // 右
-//    } else if (relative_angle >= -3*M_PI/4 && relative_angle < -M_PI/4) {
-//        phase = 3;  // 左
-//    } else {
-//        phase = 2;  // 后
-//    }
-//    
-//    //RCLCPP_INFO(this->get_logger(), 
-//    //            "estimatePhaseFromPosition: tracker %d at (%.2f,%.2f), "
-//    //            "enemy center (%.2f,%.2f), enemy_yaw=%.1f°, "
-//    //            "rel_angle=%.1f° -> phase=%d",
-//    //            tracker.tracker_idx,
-//    //            tracker.position.x(), tracker.position.y(),
-//    //            enemy.center.x(), enemy.center.y(),
-//    //            enemy.yaw * 180.0 / M_PI,
-//    //            relative_angle * 180.0 / M_PI,
-//    //            phase);
-//    
-//    return phase;
-//}
+
 
 double EnemyPredictor::angleBetweenVectors(Eigen::Vector3d vec1, Eigen::Vector3d vec2){
     
