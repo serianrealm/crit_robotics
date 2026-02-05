@@ -54,13 +54,11 @@ void EnemyPredictor::initBallistic() {
 
 void EnemyPredictor::initFilterParams() {
 
-    // 其他 CKF 参数
     auto declare_get = [this](const std::string& name, auto default_val) -> auto {
         using T = decltype(default_val);
         node_->declare_parameter<T>(name, default_val);
         return node_->get_parameter(name).template get_value<T>();
     };
-    // EKF 协方差矩阵参数
     auto p_diag = declare_get("armor_ekf.P", std::vector<double>{0.025, 0.049, 0.001, 0.01, 0.01, 0.01});
     ArmorXYYAWEKF::config_.config_P = Eigen::Map<Eigen::VectorXd>(p_diag.data(), 6);
     
@@ -142,22 +140,22 @@ void EnemyPredictor::detection_callback(const vision_msgs::msg::Detection2DArray
         }
         Detection det{};
         det.armor_idx = std::stoi(detection.id);
-        
+        det.area_2d = detection.bbox.size_x * detection.bbox.size_y;
         const auto& results_ = detection.results;
        
         for(const auto& res : results_){
             const auto& pos = res.pose;
-          
+            
             det.position = Eigen::Vector3d(pos.pose.position.x, pos.pose.position.y, pos.pose.position.z) ;
+            det.orientation = Eigen::Quaterniond(pos.pose.orientation.w, pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
+            double yaw_cam = getYawfromQuaternion(pos.pose.orientation.w, pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
             
-            det.orientation = Eigen::Vector3d(pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
-            
-            if(abs(pos.pose.orientation.z) > 1.05){
+            if(abs(yaw_cam) > 1.05){
                 valid_det = false;
             }
             rm_msgs::msg::Imu imu_data = predictor_node->get_imu(time_image);
            
-            det.yaw = pos.pose.orientation.z - imu_data.yaw;
+            det.yaw = yaw_cam - imu_data.yaw;
            
             det.armor_class_id = std::stoi(res.hypothesis.class_id);
             
@@ -171,7 +169,6 @@ void EnemyPredictor::detection_callback(const vision_msgs::msg::Detection2DArray
             updateArmorDetection(object_points, det, time_image);
             current_detections_.emplace_back(det);
         }
-
     }
     if(current_detections_.empty()){
         return;

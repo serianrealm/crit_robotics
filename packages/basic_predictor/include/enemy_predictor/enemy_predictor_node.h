@@ -49,13 +49,11 @@ public:
     struct Detection {
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
         Eigen::Vector3d position;
-        Eigen::Vector3d orientation; 
+        Eigen::Quaterniond orientation; 
         int armor_class_id;         
         int armor_idx; 
         double yaw;    
         double area_2d;      
-        double dis_2d;   
-        double dis_to_heart;
     
         Detection() = default;
         
@@ -81,15 +79,13 @@ public:
         ArmorXYYAWEKF ekf;
         ZEKF zekf;
         
-        double dis_2d = 0.0;
         double area_2d = 0.0;
-        cv::Rect rect;
         
         double last_update_time = 0.0;
         
         int assigned_enemy_idx = -1;
         int phase_id = -1;
-        double phase_conf = 0.0;
+        //double phase_conf = 0.0;
         
         // 朝向相关
         double yaw = 0.0;
@@ -245,6 +241,8 @@ private:
     double angleBetweenVectors(Eigen::Vector3d vec1, Eigen::Vector3d vec2);
     double normalize_angle(double angle);
     double angle_difference(double a, double b);
+
+    double getYawfromQuaternion(double w, double x, double  y, double z);
     
     // 可视化
     void visualizeAimCenter(const Eigen::Vector3d& armor_odom, const cv::Scalar& point_color = cv::Scalar(0, 0, 255));

@@ -43,52 +43,53 @@ Eigen::Isometry3d EnemyPredictor::getTrans(const std::string& source_frame, cons
 void EnemyPredictor::updateArmorDetection(std::vector<cv::Point3f> object_points,
                                               Detection& det,
                                               rclcpp::Time timestamp_image) {
-    std::vector<cv::Point2f> reprojected_points;
+    //std::vector<cv::Point2f> reprojected_points;
 
-    cv::Mat tvec = (cv::Mat_<double>(3, 1) << 
-                    det.position.x(), 
-                    det.position.y(), 
-                    det.position.z());
-    cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
-
-    double roll = det.orientation.x();
-    double pitch = det.orientation.y();
-    double yaw = det.orientation.z();
+    //cv::Mat tvec = (cv::Mat_<double>(3, 1) << 
+    //                det.position.x(), 
+    //                det.position.y(), 
+    //                det.position.z());
+    //cv::Mat rvec = cv::Mat::zeros(3, 1, CV_64F);
+//
+    //double roll = det.orientation(1);
+    //double pitch = det.orientation(2);
+    //double yaw = det.orientation(3);
     //RCLCPP_INFO(get_logger(), "roll = %lf", roll);
     //RCLCPP_INFO(get_logger(), "pitch = %lf", pitch);
     //RCLCPP_INFO(get_logger(), "yaw = %lf", yaw);
 
-    double cr = cos(roll), sr = sin(roll);
-    double cp = cos(pitch), sp = sin(pitch);
-    double cy = cos(yaw), sy = sin(yaw);
+    //double cr = cos(roll), sr = sin(roll);
+    //double cp = cos(pitch), sp = sin(pitch);
+    //double cy = cos(yaw), sy = sin(yaw);
+//
+    //cv::Mat R = (cv::Mat_<double>(3, 3) <<
+    //    cy*cp,  cy*sp*sr - sy*cr,  cy*sp*cr + sy*sr,
+    //    sy*cp,  sy*sp*sr + cy*cr,  sy*sp*cr - cy*sr,
+    //    -sp,    cp*sr,             cp*cr);
+//
+    //cv::Rodrigues(R, rvec);
+//
+    //cv::projectPoints(object_points, rvec, tvec, 
+    //                   visualize_.camera_matrix, visualize_.dist_coeffs, reprojected_points);
 
-    cv::Mat R = (cv::Mat_<double>(3, 3) <<
-        cy*cp,  cy*sp*sr - sy*cr,  cy*sp*cr + sy*sr,
-        sy*cp,  sy*sp*sr + cy*cr,  sy*sp*cr - cy*sr,
-        -sp,    cp*sr,             cp*cr);
+    //const cv::Point2f& p0 = reprojected_points[0];
+    //const cv::Point2f& p1 = reprojected_points[1];
+    //const cv::Point2f& p2 = reprojected_points[2];
+    //const cv::Point2f& p3 = reprojected_points[3];
 
-    cv::Rodrigues(R, rvec);
-
-    cv::projectPoints(object_points, rvec, tvec, 
-                       visualize_.camera_matrix, visualize_.dist_coeffs, reprojected_points);
-
-    const cv::Point2f& p0 = reprojected_points[0];
-    const cv::Point2f& p1 = reprojected_points[1];
-    const cv::Point2f& p2 = reprojected_points[2];
-    const cv::Point2f& p3 = reprojected_points[3];
     // 鞋带公式
-    double area = 0.0;
-    area += p0.x * p1.y - p1.x * p0.y;
-    area += p1.x * p2.y - p2.x * p1.y;
-    area += p2.x * p3.y - p3.x * p2.y;
-    area += p3.x * p0.y - p0.x * p3.y;
-    det.area_2d = std::abs(area) / 2.0;
+    //double area = 0.0;
+    //area += p0.x * p1.y - p1.x * p0.y;
+    //area += p1.x * p2.y - p2.x * p1.y;
+    //area += p2.x * p3.y - p3.x * p2.y;
+    //area += p3.x * p0.y - p0.x * p3.y;
+    //det.area_2d = std::abs(area) / 2.0;
 
-    Eigen::Vector3d camera_tvec_eigen = Eigen::Map<Eigen::Vector3d>(visualize_.camera_tvec.ptr<double>());
+    //Eigen::Vector3d camera_tvec_eigen = Eigen::Map<Eigen::Vector3d>(visualize_.camera_tvec.ptr<double>());
     visualize_.camara_to_odom = getTrans("camera_optical_frame", "odom", timestamp_image);
     
     det.position = visualize_.camara_to_odom * det.position;  //camera to odom
-    visualizeAimCenter(det.position, cv::Scalar(225, 0, 225));
+    //visualizeAimCenter(det.position, cv::Scalar(225, 0, 225));
 }
 //--------------------------------Tracking with Armor Filter--------------------------------------------------
 EnemyPredictor::ArmorTracker::ArmorTracker(int tracker_idx, 
@@ -460,7 +461,7 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
                
                 cmd.booster_enable = 1;
                 // ---------------------可视化------------------------
-                visualizeAimCenter(armor_center_pre, cv::Scalar(0, 0, 255));
+                //visualizeAimCenter(armor_center_pre, cv::Scalar(0, 0, 255));
 
                 enemy_markers_.markers.clear();
                 visualization_msgs::msg::Marker aim_marker;
@@ -753,7 +754,7 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     ZEKF::Vz z_pre = tracker.zekf.predict_position(dt);              // z的处理后面再调，用z_ekf or 均值滤波
     Eigen::Vector3d xyz_ekf_pre = Eigen::Vector3d(xyyaw_pre_ekf[0], xyyaw_pre_ekf[1], z_pre[0]);
     
-    visualizeAimCenter(xyz_ekf_pre, cv::Scalar(0, 255, 0));
+    //visualizeAimCenter(xyz_ekf_pre, cv::Scalar(0, 255, 0));
     //if(!enemy.radius_cal){
     //   return xyz_ekf_pre;
     //}
@@ -765,8 +766,8 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     //    RCLCPP_INFO(get_logger(), "CKF: Xe(%d) = %lf", i, enemy.enemy_ckf.Xe(i));
     //}
    
-    visualizeAimCenter(xyz_pre_ckf, cv::Scalar(255, 0, 0));
-    visualizeAimCenter(enemy_xyz, cv::Scalar(0, 255, 255));   // For DEBUG
+    //visualizeAimCenter(xyz_pre_ckf, cv::Scalar(255, 0, 0));
+    //visualizeAimCenter(enemy_xyz, cv::Scalar(0, 255, 255));   // For DEBUG
     
     double k = 1.0;
     double r0 = 1.0;
@@ -1026,6 +1027,30 @@ double EnemyPredictor::angle_difference(double a, double b) {
     double diff = normalize_angle(a - b);
     if (diff > M_PI) diff -= 2 * M_PI;
     return diff;
+}
+double EnemyPredictor::getYawfromQuaternion(double w, double x, double  y, double z) {
+
+    Eigen::Quaterniond q = Eigen::Quaterniond(w, x, y, z);
+    Eigen::Quaterniond q_norm = q.normalized();
+    Eigen::Matrix3d R = q_norm.toRotationMatrix();
+    
+    Eigen::Vector3d euler;
+    const double eps = 1e-6;
+    
+    // 检查万向节锁
+    if (std::abs(R(2, 0)) < 1.0 - eps) {
+        // 正常情况
+        euler(1) = -std::asin(R(2, 0));  // pitch
+        euler(0) = std::atan2(R(2, 1), R(2, 2));  // roll
+        euler(2) = std::atan2(R(1, 0), R(0, 0));  // yaw
+    } else {
+        // 万向节锁情况
+        euler(1) = -std::copysign(M_PI/2, R(2, 0));  // pitch = ±90°
+        euler(0) = std::atan2(-R(0, 1), R(1, 1));  // roll
+        euler(2) = 0;  // yaw设为0
+    }
+    
+    return euler(2);  // 只返回yaw
 }
 
 // 可视化：aim center
