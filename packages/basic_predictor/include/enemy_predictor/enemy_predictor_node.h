@@ -43,8 +43,8 @@ public:
     static constexpr size_t MAX_ENEMIES = 8;
 
     struct TF{
-        Eigen::Isometry3d odom_to_gimbal;
-        Eigen::Isometry3d camara_to_odom;
+        Eigen::Isometry3d base_link_to_gimbal;
+        Eigen::Isometry3d camara_to_base_link;
     }tf_;
     struct Detection {
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -179,7 +179,7 @@ public:
         cv::Mat dist_coeffs{};
         cv::Mat camera_rvec = cv::Mat::zeros(3, 1, CV_64F);
         cv::Mat camera_tvec = cv::Mat::zeros(3, 1, CV_64F);;
-        Eigen::Isometry3d camara_to_odom{};
+        Eigen::Isometry3d camara_to_base_link{};
         Eigen::Vector3d pos_camera{};
         cv::Point2f camera_heart{};
         std::string image_frame;
@@ -215,6 +215,7 @@ private:
     void initFilterParams();
     void initCommandParams();
     rclcpp::Node* node_;
+    PredictorNodeInterface* predictor_node = dynamic_cast<PredictorNodeInterface*>(node_);
 
     // 敌人分配和更新
     void updateEnemy(Enemy& enemy, double timestamp, std::vector<int>& active_armor_idx);
@@ -245,7 +246,8 @@ private:
     double getYawfromQuaternion(double w, double x, double  y, double z);
     
     // 可视化
-    void visualizeAimCenter(const Eigen::Vector3d& armor_odom, const cv::Scalar& point_color = cv::Scalar(0, 0, 255));
+    void visualizeAimCenter(const Eigen::Vector3d& armor_base_link, const cv::Scalar& point_color = cv::Scalar(0, 0, 255));
+    geometry_msgs::msg::Pose vectorToPose(const Eigen::Vector3d& point);
     
     rclcpp::Subscription<vision_msgs::msg::Detection2DArray>::SharedPtr detector_sub;
 

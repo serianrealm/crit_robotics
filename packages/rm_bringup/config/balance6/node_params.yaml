@@ -75,7 +75,7 @@
     enable_imshow: false
     debug: false
     camera_name: "hkcam"
-    target_frame: "odom"
+    target_frame: "base_link"
     found_params: true
     # armor_ekf
     armor_ekf.P: [1.0,1.0,1.0,1.0,1.0,1.0]
@@ -159,7 +159,7 @@
     enable_imshow: false
     debug: false
     camera_name: "hkcam"
-    target_frame: "odom"
+    target_frame: "base_link"
     found_params: true
     # armor_ekf
     armor_ekf.P: [1.0,1.0,1.0,1.0,1.0,1.0]
@@ -231,7 +231,7 @@
     enable_imshow: false
     static_test: false
     camera_name: "hkcam"
-    target_frame: "odom"
+    target_frame: "base_link"
     found_params: true
 
     radius: 0.788

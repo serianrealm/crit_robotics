@@ -86,10 +86,78 @@ void EnemyPredictor::updateArmorDetection(std::vector<cv::Point3f> object_points
     //det.area_2d = std::abs(area) / 2.0;
 
     //Eigen::Vector3d camera_tvec_eigen = Eigen::Map<Eigen::Vector3d>(visualize_.camera_tvec.ptr<double>());
-    visualize_.camara_to_odom = getTrans("camera_optical_frame", "odom", timestamp_image);
+    //visualize_.camara_to_base_link = getTrans("camera_optical_frame", "base_link", timestamp_image);
     
-    det.position = visualize_.camara_to_odom * det.position;  //camera to odom
+    //det.position = visualize_.camara_to_base_link * det.position;  //camera to base_link
     //visualizeAimCenter(det.position, cv::Scalar(225, 0, 225));
+    enemy_markers_.markers.clear();
+    
+    visualization_msgs::msg::Marker yaw_marker;
+    yaw_marker.header.frame_id = "base_link";
+    yaw_marker.header.stamp = node_->now();
+    yaw_marker.ns = "tracker_yaw";
+    yaw_marker.id = det.armor_class_id * 1000 + det.armor_class_id * 10 + 1; // 唯一ID
+    
+    yaw_marker.type = visualization_msgs::msg::Marker::ARROW;
+    yaw_marker.action = visualization_msgs::msg::Marker::ADD;
+    
+    // 箭头的起始点（tracker当前位置）
+    geometry_msgs::msg::Point start_point;
+    start_point.x = det.position.x();
+    start_point.y = det.position.y();
+    start_point.z = det.position.z();
+    
+    // 箭头的结束点（根据yaw计算方向）
+    geometry_msgs::msg::Point end_point;
+    double arrow_length = 0.3; // 箭头长度
+    double yaw_rad = det.yaw; // tracker的yaw（弧度）
+    end_point.x = start_point.x - arrow_length * cos(yaw_rad);
+    end_point.y = start_point.y + arrow_length * sin(yaw_rad);
+    end_point.z = start_point.z; // 保持在相同高度
+    
+    yaw_marker.points.push_back(start_point);
+    yaw_marker.points.push_back(end_point);
+    
+    yaw_marker.scale.x = 0.02;  // 箭头杆直径
+    yaw_marker.scale.y = 0.04;  // 箭头头直径
+    yaw_marker.scale.z = 0.1;   // 箭头头长度
+
+     // 橙色表示朝向箭头
+    yaw_marker.color.r = 1.0;
+    yaw_marker.color.g = 0.5;
+    yaw_marker.color.b = 0.0;
+    yaw_marker.color.a = 0.9;
+    
+    yaw_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+    enemy_markers_.markers.push_back(yaw_marker);
+    // -------------当前armor位置-----------------------------------
+    visualization_msgs::msg::Marker tracker_marker;
+    tracker_marker.header.frame_id = "base_link";
+    tracker_marker.header.stamp = node_->now();
+    tracker_marker.ns = "tracker_current";
+    tracker_marker.id = det.armor_class_id * 1000 + det.armor_class_id * 10; // 唯一ID
+    
+    tracker_marker.type = visualization_msgs::msg::Marker::SPHERE;
+    tracker_marker.action = visualization_msgs::msg::Marker::ADD;
+    
+    // 使用tracker当前位置
+    tracker_marker.pose.position.x = det.position.x();
+    tracker_marker.pose.position.y = det.position.y();
+    tracker_marker.pose.position.z = det.position.z();
+    tracker_marker.pose.orientation.w = 1.0;
+    
+    tracker_marker.scale.x = 0.06;  // 稍微小一点，与装甲板区分
+    tracker_marker.scale.y = 0.06;
+    tracker_marker.scale.z = 0.06;
+    
+    // 紫色表示tracker当前位置
+    tracker_marker.color.r = 0.8;   // 紫色：红+蓝
+    tracker_marker.color.g = 0.0;
+    tracker_marker.color.b = 0.8;
+    tracker_marker.color.a = 0.9;
+    
+    tracker_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+    enemy_markers_.markers.push_back(tracker_marker);
 }
 //--------------------------------Tracking with Armor Filter--------------------------------------------------
 EnemyPredictor::ArmorTracker::ArmorTracker(int tracker_idx, 
@@ -248,9 +316,9 @@ void EnemyPredictor::EnemyManage(double timestamp, rclcpp::Time timestamp_image,
                 //如果某个enemy只存在过一个装甲板的detection,使用const_radius但只做ekf得到cmd结果
                 //那么此时的enemy.center不准，但是choose enemy的时候需要使用enemy.center
                 RCLCPP_INFO(get_logger(),"Start To Choose Target");
-                Eigen::Vector3d enemy_center_cam = visualize_.camara_to_odom.inverse() *enemies_[active_enemies_idx[i]].center;
+                Eigen::Vector3d enemy_center_cam = visualize_.camara_to_base_link.inverse() *enemies_[active_enemies_idx[i]].center;
                
-                // DEBUG!!!!!!!!!!!! odom to camera ,but distance???????? 
+                // DEBUG!!!!!!!!!!!! base_link to camera ,but distance???????? 
                 std::vector<cv::Point2f> reprojected_points;
                 std::vector<cv::Point3f> points_3d;
                 cv::Point3f point_3d(enemy_center_cam.x(), enemy_center_cam.y(), enemy_center_cam.z());
@@ -375,47 +443,48 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
         }
     }
     //------------------- Visualize for Debug (rviz2) -------------------------
-    enemy_markers_.markers.clear();
-    for(ArmorTracker* tracker : active_trackers){
-        visualization_msgs::msg::Marker yaw_marker;
-        yaw_marker.header.frame_id = "odom";
-        yaw_marker.header.stamp = node_->now();
-        yaw_marker.ns = "tracker_yaw";
-        yaw_marker.id = enemy.class_id * 1000 + tracker->tracker_idx * 10 + 1; // 唯一ID
-        
-        yaw_marker.type = visualization_msgs::msg::Marker::ARROW;
-        yaw_marker.action = visualization_msgs::msg::Marker::ADD;
-        
-        // 箭头的起始点（tracker当前位置）
-        geometry_msgs::msg::Point start_point;
-        start_point.x = tracker->position.x();
-        start_point.y = tracker->position.y();
-        start_point.z = tracker->position.z();
-        
-        // 箭头的结束点（根据yaw计算方向）
-        geometry_msgs::msg::Point end_point;
-        double arrow_length = 0.3; // 箭头长度
-        double yaw_rad = tracker->yaw; // tracker的yaw（弧度）
-        end_point.x = start_point.x - arrow_length * cos(yaw_rad);
-        end_point.y = start_point.y + arrow_length * sin(yaw_rad);
-        end_point.z = start_point.z; // 保持在相同高度
-        
-        yaw_marker.points.push_back(start_point);
-        yaw_marker.points.push_back(end_point);
-        
-        yaw_marker.scale.x = 0.02;  // 箭头杆直径
-        yaw_marker.scale.y = 0.04;  // 箭头头直径
-        yaw_marker.scale.z = 0.1;   // 箭头头长度
-    
-         // 橙色表示朝向箭头
-        yaw_marker.color.r = 1.0;
-        yaw_marker.color.g = 0.5;
-        yaw_marker.color.b = 0.0;
-        yaw_marker.color.a = 0.9;
-        
-        yaw_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
-        enemy_markers_.markers.push_back(yaw_marker);
-    }
+    //enemy_markers_.markers.clear();
+    //for(ArmorTracker* tracker : active_trackers){
+    //    visualization_msgs::msg::Marker yaw_marker;
+    //    yaw_marker.header.frame_id = "base_link";
+    //    yaw_marker.header.stamp = node_->now();
+    //    yaw_marker.ns = "tracker_yaw";
+    //    yaw_marker.id = enemy.class_id * 1000 + tracker->tracker_idx * 10 + 1; // 唯一ID
+    //    
+    //    yaw_marker.type = visualization_msgs::msg::Marker::ARROW;
+    //    yaw_marker.action = visualization_msgs::msg::Marker::ADD;
+    //    
+    //    // 箭头的起始点（tracker当前位置）
+    //    geometry_msgs::msg::Point start_point;
+    //    start_point.x = tracker->position.x();
+    //    start_point.y = tracker->position.y();
+    //    start_point.z = tracker->position.z();
+    //    
+    //    // 箭头的结束点（根据yaw计算方向）
+    //    geometry_msgs::msg::Point end_point;
+    //    double arrow_length = 0.3; // 箭头长度
+    //    double yaw_rad = tracker->yaw; // tracker的yaw（弧度）
+    //    end_point.x = start_point.x - arrow_length * cos(yaw_rad);
+    //    end_point.y = start_point.y + arrow_length * sin(yaw_rad);
+    //    end_point.z = start_point.z; // 保持在相同高度
+    //    
+    //    yaw_marker.points.push_back(start_point);
+    //    yaw_marker.points.push_back(end_point);
+    //    
+    //    yaw_marker.scale.x = 0.02;  // 箭头杆直径
+    //    yaw_marker.scale.y = 0.04;  // 箭头头直径
+    //    yaw_marker.scale.z = 0.1;   // 箭头头长度
+    //
+    //     // 橙色表示朝向箭头
+    //    yaw_marker.color.r = 1.0;
+    //    yaw_marker.color.g = 0.5;
+    //    yaw_marker.color.b = 0.0;
+    //    yaw_marker.color.a = 0.9;
+    //    
+    //    yaw_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+    //    enemy_markers_.markers.push_back(yaw_marker);
+    //}
+    // --------------------------To show yaw in all mode -----------------------------------
     cv::putText(visualize_.armor_img, 
                  cv::format("yaw = %.2f", enemy.enemy_ckf.Xe(4)),  // 新增数据
                  cv::Point(50, 140),  // y坐标下移40像素
@@ -460,12 +529,14 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
             if (std::abs(angle) < cmd.yaw_thresh){
                
                 cmd.booster_enable = 1;
-                // ---------------------可视化------------------------
+                // ------------------可视化高速小陀螺时准备击打的预测点-------------------
                 //visualizeAimCenter(armor_center_pre, cv::Scalar(0, 0, 255));
-
+                geometry_msgs::msg::Pose pose_pre = vectorToPose(armor_center_pre);
+                predictor_node->annotate(pose_pre);
+                
                 enemy_markers_.markers.clear();
                 visualization_msgs::msg::Marker aim_marker;
-                aim_marker.header.frame_id = "odom";
+                aim_marker.header.frame_id = "base_link";
                 aim_marker.header.stamp = node_->now();
                 aim_marker.ns = "tracker_current";
                 aim_marker.id = enemy.class_id * 1000 + 50; // 唯一ID
@@ -483,7 +554,7 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
                 aim_marker.scale.y = 0.10;
                 aim_marker.scale.z = 0.10;
                 
-                // red
+                // Red
                 aim_marker.color.r = 1.0; 
                 aim_marker.color.g = 0.0;
                 aim_marker.color.b = 0.0;
@@ -539,7 +610,6 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
                 );
             std::vector<double> yaw_armor_to_center;
             Eigen::Vector3d enemy_center_pre = enemy.enemy_ckf.predictCenterPosition(enemy.center(2), ball_res.t + params_.response_delay + params_.shoot_delay);
-            double enemy_yaw_xy = std::atan2(enemy_center_pre[1], enemy_center_pre[0]); 
            
             for(size_t i = 0; i < active_trackers.size(); i++){
                 auto ball_res = calc_ballistic_one(
@@ -626,13 +696,11 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
                          finish_choose = true;
                          break;
                       }
-                      RCLCPP_INFO(get_logger(), "check 3!!!!!!!!!");
                   }
                }
                //出了上面的循环，要么没有这一帧的active_trackers没有上一帧的目标，要么相差超过临界，此时大公无私地选击打目标armor了
                //平动至少会瞄一个
                if(!finish_choose){
-                  RCLCPP_INFO(get_logger(), "check 4!!!!!!!!!");
                   double yaw_min = 180.0;
                   int aim_idx = -1;
                   // 瞄最正对的armor
@@ -649,7 +717,6 @@ void EnemyPredictor::getCommand(Enemy& enemy, double timestamp, rclcpp::Time tim
                           timestamp,
                           predict_func_double
                        );
-                   RCLCPP_INFO(get_logger(), "check 5!!!!!!!!!");
                    cmd.cmd_yaw = ball_res.yaw;
                    cmd.cmd_pitch = ball_res.pitch;
                    cmd.booster_enable = 1;
@@ -665,8 +732,8 @@ BallisticResult EnemyPredictor::calc_ballistic_one
 {
 
     BallisticResult ball_res;
-    Eigen::Vector3d predict_pos_odom;
-    //Eigen::Isometry3d odom2gimbal_transform = getTrans("odom", "gimbal", timestamp_image);
+    Eigen::Vector3d predict_pos_base_link;
+    //Eigen::Isometry3d base_link2gimbal_transform = getTrans("base_link", "gimbal", timestamp_image);
     double t_fly = 0.0;  // 飞行时间（迭代求解）
 
     rclcpp::Time tick = node_->now();
@@ -680,11 +747,11 @@ BallisticResult EnemyPredictor::calc_ballistic_one
 
         double code_dt = tock.seconds() - timestamp_image.seconds();
         //RCLCPP_INFO(this->get_logger(), "latency time: %.6f", latency);
-        predict_pos_odom = _predict_func(tracker, t_fly + latency + code_dt, timestamp);
+        predict_pos_base_link = _predict_func(tracker, t_fly + latency + code_dt, timestamp);
 
-        double x = predict_pos_odom.x();
-        double y = predict_pos_odom.y();
-        double z = predict_pos_odom.z();
+        double x = predict_pos_base_link.x();
+        double y = predict_pos_base_link.y();
+        double z = predict_pos_base_link.z();
 
         ball_res = ballistic_solver_->query(x, y, z);
 
@@ -699,8 +766,8 @@ BallisticResult EnemyPredictor::calc_ballistic_one
     // address it later!!!!!!!!!!!!!!!!!!!
     //z_vec << 0, 0, cmd.robot.z_velocity * (params_.shoot_delay + t_fly);
 
-    //ball_res = bac.final_ballistic(odom2gimbal_transform, predict_pos_odom - z_vec);
-    //RCLCPP_DEBUG(get_logger(), "calc_ballistic: predict_pos_odom: %f %f %f", predict_pos_odom(0), predict_pos_odom(1), predict_pos_odom(2));
+    //ball_res = bac.final_ballistic(base_link2gimbal_transform, predict_pos_base_link - z_vec);
+    //RCLCPP_DEBUG(get_logger(), "calc_ballistic: predict_pos_base_link: %f %f %f", predict_pos_base_link(0), predict_pos_base_link(1), predict_pos_base_link(2));
     return ball_res;
 }
 BallisticResult EnemyPredictor::calc_ballistic_second
@@ -709,8 +776,8 @@ BallisticResult EnemyPredictor::calc_ballistic_second
 {
 
     BallisticResult ball_res;
-    Eigen::Vector3d predict_pos_odom;
-    //Eigen::Isometry3d odom2gimbal_transform = getTrans("odom", "gimbal", timestamp_image);
+    Eigen::Vector3d predict_pos_base_link;
+    //Eigen::Isometry3d base_link2gimbal_transform = getTrans("base_link", "gimbal", timestamp_image);
     double t_fly = 0.0;  // 飞行时间（迭代求解）
 
     rclcpp::Time tick = node_->now();
@@ -724,11 +791,11 @@ BallisticResult EnemyPredictor::calc_ballistic_second
 
         double code_dt = tock.seconds() - timestamp_image.seconds();
 
-        predict_pos_odom = _predict_func(enemy, t_fly + latency + code_dt, phase_id);
+        predict_pos_base_link = _predict_func(enemy, t_fly + latency + code_dt, phase_id);
 
-        double x = predict_pos_odom.x();
-        double y = predict_pos_odom.y();
-        double z = predict_pos_odom.z();
+        double x = predict_pos_base_link.x();
+        double y = predict_pos_base_link.y();
+        double z = predict_pos_base_link.z();
 
         ball_res = ballistic_solver_->query(x, y, z);
 
@@ -744,8 +811,8 @@ BallisticResult EnemyPredictor::calc_ballistic_second
     // address it later!!!!!!!!!!!!!!!!!!!
     //z_vec << 0, 0, cmd.robot.z_velocity * (params_.shoot_delay + t_fly);
 
-    //ball_res = bac.final_ballistic(odom2gimbal_transform, predict_pos_odom - z_vec);
-    //RCLCPP_DEBUG(get_logger(), "calc_ballistic: predict_pos_odom: %f %f %f", predict_pos_odom(0), predict_pos_odom(1), predict_pos_odom(2));
+    //ball_res = bac.final_ballistic(base_link2gimbal_transform, predict_pos_base_link - z_vec);
+    //RCLCPP_DEBUG(get_logger(), "calc_ballistic: predict_pos_base_link: %f %f %f", predict_pos_base_link(0), predict_pos_base_link(1), predict_pos_base_link(2));
     return ball_res;
 }
 Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTracker& tracker, double timestamp){
@@ -755,6 +822,9 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     Eigen::Vector3d xyz_ekf_pre = Eigen::Vector3d(xyyaw_pre_ekf[0], xyyaw_pre_ekf[1], z_pre[0]);
     
     //visualizeAimCenter(xyz_ekf_pre, cv::Scalar(0, 255, 0));
+    geometry_msgs::msg::Pose pose_pre_ekf = vectorToPose(xyz_ekf_pre);
+    predictor_node->annotate(pose_pre_ekf);
+    
     //if(!enemy.radius_cal){
     //   return xyz_ekf_pre;
     //}
@@ -768,6 +838,11 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
    
     //visualizeAimCenter(xyz_pre_ckf, cv::Scalar(255, 0, 0));
     //visualizeAimCenter(enemy_xyz, cv::Scalar(0, 255, 255));   // For DEBUG
+    geometry_msgs::msg::Pose center = vectorToPose(enemy_xyz);
+    predictor_node->annotate(center);
+
+    geometry_msgs::msg::Pose pose_pre_ckf = vectorToPose(xyz_pre_ckf);
+    predictor_node->annotate(pose_pre_ckf);
     
     double k = 1.0;
     double r0 = 1.0;
@@ -797,79 +872,12 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     Eigen::Vector3d fusion_pre = w_ekf * xyz_ekf_pre + w_ckf * xyz_pre_ckf;
     
     //visualizeAimCenter(fusion_pre, cv::Scalar(0, 0, 255));
+    geometry_msgs::msg::Pose fusion_pose = vectorToPose(fusion_pre);
+    predictor_node->annotate(fusion_pose);
 
-    // =================== 可视化tracker当前位置（紫色小球） ===================
-    enemy_markers_.markers.clear();
-    visualization_msgs::msg::Marker tracker_marker;
-    tracker_marker.header.frame_id = "odom";
-    tracker_marker.header.stamp = node_->now();
-    tracker_marker.ns = "tracker_current";
-    tracker_marker.id = enemy.class_id * 1000 + tracker.tracker_idx * 10; // 唯一ID
-    
-    tracker_marker.type = visualization_msgs::msg::Marker::SPHERE;
-    tracker_marker.action = visualization_msgs::msg::Marker::ADD;
-    
-    // 使用tracker当前位置
-    tracker_marker.pose.position.x = tracker.position.x();
-    tracker_marker.pose.position.y = tracker.position.y();
-    tracker_marker.pose.position.z = tracker.position.z();
-    tracker_marker.pose.orientation.w = 1.0;
-    
-    tracker_marker.scale.x = 0.05;  // 稍微小一点，与装甲板区分
-    tracker_marker.scale.y = 0.05;
-    tracker_marker.scale.z = 0.05;
-    
-    // 紫色表示tracker当前位置
-    tracker_marker.color.r = 0.8;   // 紫色：红+蓝
-    tracker_marker.color.g = 0.0;
-    tracker_marker.color.b = 0.8;
-    tracker_marker.color.a = 0.9;
-    
-    tracker_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
-    enemy_markers_.markers.push_back(tracker_marker);
-
-    // =================== 可视化tracker朝向（箭头） ===================
-    visualization_msgs::msg::Marker yaw_marker;
-    yaw_marker.header.frame_id = "odom";
-    yaw_marker.header.stamp = node_->now();
-    yaw_marker.ns = "tracker_yaw";
-    yaw_marker.id = enemy.class_id * 1000 + tracker.tracker_idx * 10 + 1; // 唯一ID
-    
-    yaw_marker.type = visualization_msgs::msg::Marker::ARROW;
-    yaw_marker.action = visualization_msgs::msg::Marker::ADD;
-    
-    // 箭头的起始点（tracker当前位置）
-    geometry_msgs::msg::Point start_point;
-    start_point.x = tracker.position.x();
-    start_point.y = tracker.position.y();
-    start_point.z = tracker.position.z();
-    
-    // 箭头的结束点（根据yaw计算方向）
-    geometry_msgs::msg::Point end_point;
-    double arrow_length = 0.3; // 箭头长度
-    double yaw_rad = tracker.yaw; // tracker的yaw（弧度）
-    end_point.x = start_point.x - arrow_length * cos(yaw_rad);
-    end_point.y = start_point.y + arrow_length * sin(yaw_rad);
-    end_point.z = start_point.z; // 保持在相同高度
-    
-    yaw_marker.points.push_back(start_point);
-    yaw_marker.points.push_back(end_point);
-    
-    yaw_marker.scale.x = 0.02;  // 箭头杆直径
-    yaw_marker.scale.y = 0.04;  // 箭头头直径
-    yaw_marker.scale.z = 0.1;   // 箭头头长度
-
-     // 橙色表示朝向箭头
-    yaw_marker.color.r = 1.0;
-    yaw_marker.color.g = 0.5;
-    yaw_marker.color.b = 0.0;
-    yaw_marker.color.a = 0.9;
-    
-    yaw_marker.lifetime = rclcpp::Duration::from_seconds(0.2);
-    enemy_markers_.markers.push_back(yaw_marker);
     // =================== 添加EKF滤波器可视化到rviz ===================
     visualization_msgs::msg::Marker ekf_armor_marker;
-    ekf_armor_marker.header.frame_id = "odom";
+    ekf_armor_marker.header.frame_id = "base_link";
     ekf_armor_marker.header.stamp = node_->now();
     ekf_armor_marker.ns = "filter_results";
     ekf_armor_marker.id = enemy.class_id * 100 + 3;  // EKF使用不同的ID
@@ -897,7 +905,7 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     
     // 1. 可视化CKF估计的敌人中心（enemy_xyz）
     visualization_msgs::msg::Marker ckf_center_marker;
-    ckf_center_marker.header.frame_id = "odom";  // 与之前的坐标系一致
+    ckf_center_marker.header.frame_id = "base_link";  // 与之前的坐标系一致
     ckf_center_marker.header.stamp = node_->now();
     ckf_center_marker.ns = "filter_results";
     ckf_center_marker.id = enemy.class_id * 100 + 1;  // 使用不同的ID范围
@@ -914,7 +922,7 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     ckf_center_marker.scale.y = 0.08;
     ckf_center_marker.scale.z = 0.08;
     
-    // 设置颜色：青色表示CKF估计的敌人中心
+    // 设置颜色：黄色表示CKF估计的敌人中心
     ckf_center_marker.color.r = 1.0;
     ckf_center_marker.color.g = 1.0;
     ckf_center_marker.color.b = 0.0;
@@ -924,7 +932,7 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     enemy_markers_.markers.push_back(ckf_center_marker);
     
     visualization_msgs::msg::Marker ckf_armor_marker;
-    ckf_armor_marker.header.frame_id = "odom";
+    ckf_armor_marker.header.frame_id = "base_link";
     ckf_armor_marker.header.stamp = node_->now();
     ckf_armor_marker.ns = "filter_results";
     ckf_armor_marker.id = enemy.class_id * 100 + 2;  // 不同ID
@@ -941,7 +949,7 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     ckf_armor_marker.scale.y = 0.06;
     ckf_armor_marker.scale.z = 0.06;
     
-    // 设置颜色：蓝色表示CKF预测的装甲板位置
+    // 蓝色表示CKF预测的装甲板位置
     ckf_armor_marker.color.r = 0.0;
     ckf_armor_marker.color.g = 0.0;
     ckf_armor_marker.color.b = 1.0;  // 纯蓝色
@@ -951,7 +959,7 @@ Eigen::Vector3d EnemyPredictor::FilterManage(Enemy &enemy, double dt, ArmorTrack
     enemy_markers_.markers.push_back(ckf_armor_marker);
 
     //visualization_msgs::msg::Marker fusion_marker;
-    //fusion_marker.header.frame_id = "odom";
+    //fusion_marker.header.frame_id = "base_link";
     //fusion_marker.header.stamp = this->now();
     //fusion_marker.ns = "fusion_results";
     //fusion_marker.id = enemy.class_id * 100 + 4;  // 新的ID，确保不冲突
@@ -1054,7 +1062,7 @@ double EnemyPredictor::getYawfromQuaternion(double w, double x, double  y, doubl
 }
 
 // 可视化：aim center
-void EnemyPredictor::visualizeAimCenter(const Eigen::Vector3d& armor_odom, 
+void EnemyPredictor::visualizeAimCenter(const Eigen::Vector3d& armor_base_link, 
                                            const cv::Scalar& point_color) {
     if (visualize_.armor_img.empty()) {
         RCLCPP_WARN(get_logger(), "armor_img is empty, skipping visualization");
@@ -1067,8 +1075,8 @@ void EnemyPredictor::visualizeAimCenter(const Eigen::Vector3d& armor_odom,
         return;
     }
     try{
-            // 1. 将odom系坐标转换到相机系
-    Eigen::Vector3d aim_center_cam = visualize_.camara_to_odom.inverse() * armor_odom;
+            // 1. 将base_link系坐标转换到相机系
+    Eigen::Vector3d aim_center_cam = visualize_.camara_to_base_link.inverse() * armor_base_link;
     
     // 2. 准备3D点（相机坐标系下）
     std::vector<cv::Point3d> object_points;
@@ -1132,5 +1140,20 @@ void EnemyPredictor::visualizeAimCenter(const Eigen::Vector3d& armor_odom,
     }
    
 }
-
+geometry_msgs::msg::Pose EnemyPredictor::vectorToPose(const Eigen::Vector3d& point) {
+    geometry_msgs::msg::Pose pose;
+    
+    // 设置位置
+    pose.position.x = point.x();
+    pose.position.y = point.y();  // 注意：原函数中y被用作深度
+    pose.position.z = point.z();
+    
+    // 设置姿态为单位四元数（无旋转）
+    pose.orientation.x = 0.0;
+    pose.orientation.y = 0.0;
+    pose.orientation.z = 0.0;
+    pose.orientation.w = 1.0;
+    
+    return pose;
+}
 

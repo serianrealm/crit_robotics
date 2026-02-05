@@ -77,7 +77,7 @@
     enable_imshow: false
     debug: false
     camera_name: "hkcam"
-    target_frame: "odom"
+    target_frame: "base_link"
     found_params: true
     # armor_ekf
     armor_ekf.P: [3.0, 3.0, 0.1, 5.0, 5.0, 0.5]
@@ -141,9 +141,9 @@
     collimation: [320.0,320.0]            #二维图像上的准星
    
     # 运动状态判断
-    rotate_thresh: 2.5                    #进入旋转状态阈值
+    rotate_thresh: 1.0                    #进入旋转状态阈值
     rotate_exit: 1.5                      #退出旋转状态阈值
-    high_spd_rotate_thresh: 2.0           #进入高速旋转状态阈值
+    high_spd_rotate_thresh: 5.0           #进入高速旋转状态阈值
     high_spd_rotate_exit: 22.5            #退出高速旋转状态阈值
     move_thresh: 1.0                      #进入移动状态阈值(目前移动小陀螺判断)
     move_exit: 0.5                        #退出移动状态阈值
@@ -182,7 +182,7 @@
     enable_imshow: false
     debug: false
     camera_name: "hkcam"
-    target_frame: "odom"
+    target_frame: "base_link"
     found_params: true
     # armor_ekf
     armor_ekf.P: [1.0,1.0,1.0,1.0,1.0,1.0]
@@ -254,7 +254,7 @@
     enable_imshow: false
     static_test: false
     camera_name: "hkcam"
-    target_frame: "odom"
+    target_frame: "base_link"
     found_params: true
 
     radius: 0.70

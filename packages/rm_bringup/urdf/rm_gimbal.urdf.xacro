@@ -9,14 +9,14 @@
   <xacro:arg name="yaw2pitch_xyz" default="0.0 0.0 0.0" />
 
 
-  <link name="odom" />
+  <link name="base_link" />
   <!-- 车体自身为基准的坐标系，RPY右手坐标系，面向轴的正方向取逆时针为正值，pitch、roll取水平面为零点，yaw零点任取，电控依上规定发送imu -->
 
   <link name="gimbal" />
 
-  <!-- 平衡上下小陀螺轮腿z方向上下移动时odom系为动坐标系(未引入gimbal系时)，由于KF模型暂未引入vz状态量，为保证收敛与精度，电控额外给入车身高、自身vz，gimbal系为动坐标系，对应云台，odom系对应车腿，一切坐标运算优先转换到静坐标系odom中 -->
+  <!-- 平衡上下小陀螺轮腿z方向上下移动时base_link系为动坐标系(未引入gimbal系时)，由于KF模型暂未引入vz状态量，为保证收敛与精度，电控额外给入车身高、自身vz，gimbal系为动坐标系，对应云台，base_link系对应车腿，一切坐标运算优先转换到静坐标系base_link中 -->
   <joint name="leg_joint" type="prismatic">
-    <parent link="odom"/>
+    <parent link="base_link"/>
     <child link="gimbal"/>
     <axis xyz="0 0 1"/> <!-- 指定关节沿z轴方向 -->
     <limit lower="-1.0" upper="1.0" effort="1000" velocity="0.2"/>

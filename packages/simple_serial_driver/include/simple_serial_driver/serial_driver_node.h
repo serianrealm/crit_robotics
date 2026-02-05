@@ -109,7 +109,7 @@ private:
     protocol_header_t protocol_header_;
     protocol_tail_t protocol_tail_;
 
-    // Broadcast tf from odom to gimbal_link
+    // Broadcast tf from base_link to gimbal_link
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
     // ros communication

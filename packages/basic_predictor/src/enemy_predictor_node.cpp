@@ -124,15 +124,14 @@ void EnemyPredictor::detection_callback(const vision_msgs::msg::Detection2DArray
     const auto& detections = detection_msg->detections;
     time_image = detection_msg-> header.stamp;
 
-    tf_.camara_to_odom = getTrans("camera_optical_frame", "odom", time_image);
-    tf_.odom_to_gimbal =  getTrans("odom", "gimbal", time_image);
+    tf_.camara_to_base_link = getTrans("camera_optical_frame", "base_link", time_image);
+    tf_.base_link_to_gimbal =  getTrans("base_link", "gimbal", time_image);
     
     cmd.cmd_mode = -1;
     cmd.booster_enable = 0;
     for(Enemy& enemy : enemies_){
         enemy.is_active = false;
     }
-    PredictorNodeInterface* predictor_node = dynamic_cast<PredictorNodeInterface*>(node_);
     for (const auto& detection : detections) {
         bool valid_det = true;
         if(detection.bbox.size_x / detection.bbox.size_y < 0.5 || detection.bbox.size_x / detection.bbox.size_y > 4){
@@ -148,14 +147,14 @@ void EnemyPredictor::detection_callback(const vision_msgs::msg::Detection2DArray
             
             det.position = Eigen::Vector3d(pos.pose.position.x, pos.pose.position.y, pos.pose.position.z) ;
             det.orientation = Eigen::Quaterniond(pos.pose.orientation.w, pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
-            double yaw_cam = getYawfromQuaternion(pos.pose.orientation.w, pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
-            
-            if(abs(yaw_cam) > 1.05){
+            //double yaw_cam = getYawfromQuaternion(pos.pose.orientation.w, pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
+            det.yaw = getYawfromQuaternion(pos.pose.orientation.w, pos.pose.orientation.x, pos.pose.orientation.y, pos.pose.orientation.z);
+            if(abs(det.yaw) > 1.05){
                 valid_det = false;
             }
-            rm_msgs::msg::Imu imu_data = predictor_node->get_imu(time_image);
+            //rm_msgs::msg::Imu imu_data = predictor_node->get_imu(time_image);
            
-            det.yaw = yaw_cam - imu_data.yaw;
+            //det.yaw = yaw_cam - imu_data.yaw;
            
             det.armor_class_id = std::stoi(res.hypothesis.class_id);
             
