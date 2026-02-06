@@ -1,6 +1,8 @@
 detector:
   ros__parameters:
+    model_name_or_path: yolo/v10
     subscriptions: ["/hikcam"]
+
 
 tracker:
   ros__parameters:

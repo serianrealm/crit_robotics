@@ -16,18 +16,19 @@ class Yolov10PosePipeline:
             model_path,
             use_safetensors=False,
             weights_only=True,
-            dtype=torch.float16
-        )
+            dtype=torch.float32
+        ).export()
 
-        dummy_inputs = torch.randn((1, 3, *image_size)).to(self.model.dtype)
+        dummy_inputs = torch.randn((1, 3, *image_size)).to(model.dtype)
 
         with torch.inference_mode(True):
-            model = model.eval().export()
-        
-            for _ in range(2):
-                self.model(dummy_inputs) # dry run
+            model(dummy_inputs) # dry run
 
-            intermediate_model = ov.convert_model(self.model, input=[dummy_inputs.shape] ,example_input=dummy_inputs)
+            intermediate_model = ov.convert_model(
+                model, 
+                input=[dummy_inputs.shape],
+                example_input=dummy_inputs
+            )
 
         core = ov.Core()
         core.set_property({
@@ -46,18 +47,16 @@ class Yolov10PosePipeline:
 
         self.model = ov.compile_model(intermediate_model, device_name="AUTO")
 
-        dummy_inputs = np.randn((1, 3, *image_size))
-        self.model([dummy_inputs])
 
-
-    def __call__(self, images:np.ndarray|list[np.ndarray], **kwargs):
+    def __call__(self, images:np.ndarray|list[np.ndarray], **kwargs) -> list[np.ndarray]:
         if not isinstance(images, list):
             images = [images[None, :]]
 
         pixel_values = np.concat(images)
 
-        prediction = self.model([pixel_values])
+        prediction = self.model([pixel_values])[self.model.output(0)]
 
-        output = non_max_suppresson(prediction, conf_thres=0.5, iou_thres=0.3)
+        output = non_max_suppresson(prediction, conf_thres=0.7, iou_thres=0.3)
 
+        output = [out.cpu().numpy() for out in output]
         return output

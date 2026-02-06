@@ -1,100 +1,98 @@
 from typing import Any
 
-import cv2
 import numba
-import logging
 import lap
 import numpy as np
 
-def convert_bbox_to_z(bbox):
-    """
-    Convert the spatial portion of a detection into the Kalman filter measurement.
+# def convert_bbox_to_z(bbox):
+#     """
+#     Convert the spatial portion of a detection into the Kalman filter measurement.
 
-    Parameters
-    ----------
-    bbox : array-like
-        Detection vector whose first four entries are ``[x1, y1, x2, y2]``.
+#     Parameters
+#     ----------
+#     bbox : array-like
+#         Detection vector whose first four entries are ``[x1, y1, x2, y2]``.
 
-    Returns
-    -------
-    np.ndarray
-        Column vector ``[x, y, s, r]^T`` where ``(x, y)`` is the box centre,
-        ``s`` is the area (scale) and ``r`` is the aspect ratio ``w / h``.
-    """
-    w = bbox[2] - bbox[0]
-    h = bbox[3] - bbox[1]
+#     Returns
+#     -------
+#     np.ndarray
+#         Column vector ``[x, y, s, r]^T`` where ``(x, y)`` is the box centre,
+#         ``s`` is the area (scale) and ``r`` is the aspect ratio ``w / h``.
+#     """
+#     w = bbox[2] - bbox[0]
+#     h = bbox[3] - bbox[1]
 
-    x = bbox[0] + w/2.
-    y = bbox[1] + h/2.
-    s = w * h    #scale is just area
-    r = w / float(h)
-    return np.array([x, y, s, r]).reshape((4, 1))
-
-
-def convert_x_to_bbox(x,score=None):
-    """
-    Convert the internal Kalman filter state back to corner coordinates.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        State vector whose first four elements are ``[x, y, s, r]``.
-    score : float, optional
-        When provided the value is appended as a fifth element.
-
-    Returns
-    -------
-    np.ndarray
-        ``[x1, y1, x2, y2]`` (or ``[x1, y1, x2, y2, score]`` when `score`
-        is not ``None``) reshaped to ``(1, -1)``.
-    """
-    w = np.sqrt(x[2] * x[3])
-    h = x[2] / w
-
-    arr = np.array([x[0]-w/2., x[1]-h/2., x[0]+w/2., x[1]+h/2.]).reshape(-1)
-    if score is None:
-        return arr.astype(np.float32)
-    return np.concat([arr, np.array([score], dtype=np.float32)])
+#     x = bbox[0] + w/2.
+#     y = bbox[1] + h/2.
+#     s = w * h    #scale is just area
+#     r = w / float(h)
+#     return np.array([x, y, s, r]).reshape((4, 1))
 
 
-class KalmanFilter:
-    """
-    Minimal Kalman filter for the constant-velocity bounding-box model.
-    """
-    def __init__(self, dim_x, dim_z):
-        self.dim_x = dim_x
-        self.dim_z = dim_z
+# def convert_x_to_bbox(x,score=None):
+#     """
+#     Convert the internal Kalman filter state back to corner coordinates.
 
-        self.x = np.zeros((dim_x, 1))
-        self.F = np.eye(dim_x)
-        self.H = np.zeros((dim_z, dim_x))
-        self.P = np.eye(dim_x)
-        self.Q = np.eye(dim_x)
-        self.R = np.eye(dim_z)
+#     Parameters
+#     ----------
+#     x : np.ndarray
+#         State vector whose first four elements are ``[x, y, s, r]``.
+#     score : float, optional
+#         When provided the value is appended as a fifth element.
 
-    def predict(self):
-        """Run the prediction step using the configured dynamics."""
-        self.x = self.F @ self.x
-        self.P = self.F @ self.P @ self.F.T + self.Q
-        return self.x
+#     Returns
+#     -------
+#     np.ndarray
+#         ``[x1, y1, x2, y2]`` (or ``[x1, y1, x2, y2, score]`` when `score`
+#         is not ``None``) reshaped to ``(1, -1)``.
+#     """
+#     w = np.sqrt(x[2] * x[3])
+#     h = x[2] / w
 
-    def update(self, z):
-        z = np.asarray(z).reshape((self.dim_z, 1))
-        y = z - self.H @ self.x
-        S = self.H @ self.P @ self.H.T + self.R
+#     arr = np.array([x[0]-w/2., x[1]-h/2., x[0]+w/2., x[1]+h/2.]).reshape(-1)
+#     if score is None:
+#         return arr.astype(np.float32)
+#     return np.concat([arr, np.array([score], dtype=np.float32)])
 
-        # --- CHANGED: use solve() instead of pinv() for speed and stability ---
-        # We want: K = P H^T S^{-1}
-        # Solve S * X = (H P)^T  => X = S^{-1} (H P)^T
-        PHt = self.P @ self.H.T                           # (dim_x, dim_z)
-        Sinv_PHtT = np.linalg.solve(S, PHt.T).T            # (dim_x, dim_z)
-        K = Sinv_PHtT
 
-        self.x = self.x + K @ y
+# class KalmanFilter:
+#     """
+#     Minimal Kalman filter for the constant-velocity bounding-box model.
+#     """
+#     def __init__(self, dim_x, dim_z):
+#         self.dim_x = dim_x
+#         self.dim_z = dim_z
 
-        I = np.eye(self.dim_x)
-        self.P = (I - K @ self.H) @ self.P
-        return self.x
+#         self.x = np.zeros((dim_x, 1))
+#         self.F = np.eye(dim_x)
+#         self.H = np.zeros((dim_z, dim_x))
+#         self.P = np.eye(dim_x)
+#         self.Q = np.eye(dim_x)
+#         self.R = np.eye(dim_z)
+
+#     def predict(self):
+#         """Run the prediction step using the configured dynamics."""
+#         self.x = self.F @ self.x
+#         self.P = self.F @ self.P @ self.F.T + self.Q
+#         return self.x
+
+#     def update(self, z):
+#         z = np.asarray(z).reshape((self.dim_z, 1))
+#         y = z - self.H @ self.x
+#         S = self.H @ self.P @ self.H.T + self.R
+
+#         # --- CHANGED: use solve() instead of pinv() for speed and stability ---
+#         # We want: K = P H^T S^{-1}
+#         # Solve S * X = (H P)^T  => X = S^{-1} (H P)^T
+#         PHt = self.P @ self.H.T                           # (dim_x, dim_z)
+#         Sinv_PHtT = np.linalg.solve(S, PHt.T).T            # (dim_x, dim_z)
+#         K = Sinv_PHtT
+
+#         self.x = self.x + K @ y
+
+#         I = np.eye(self.dim_x)
+#         self.P = (I - K @ self.H) @ self.P
+#         return self.x
 
 class TrackingObject:
     """
@@ -110,23 +108,6 @@ class TrackingObject:
     :var iou_thres: Description
     :vartype iou_thres: float
     """
-
-    _F = np.array([
-        [1,0,0,0,1,0,0],
-        [0,1,0,0,0,1,0],
-        [0,0,1,0,0,0,1],
-        [0,0,0,1,0,0,0],
-        [0,0,0,0,1,0,0],
-        [0,0,0,0,0,1,0],
-        [0,0,0,0,0,0,1]
-    ], dtype=np.float32)
-
-    _H = np.array([
-        [1,0,0,0,0,0,0],
-        [0,1,0,0,0,0,0],
-        [0,0,1,0,0,0,0],
-        [0,0,0,1,0,0,0]
-    ], dtype=np.float32)
 
     def __init__(
         self,
@@ -150,22 +131,7 @@ class TrackingObject:
         self.post_init()
 
     def post_init(self):
-        self._kf = KalmanFilter(dim_x=7, dim_z=4) 
-        self._kf.F = TrackingObject._F
-        self._kf.H = TrackingObject._H
-
-        self._kf.R[2:,2:] *= 10.
-        self._kf.P[4:,4:] *= 1000. #give high uncertainty to the unobservable initial velocities
-        self._kf.P *= 10.
-        self._kf.Q[-1,-1] *= 0.01
-        self._kf.Q[4:,4:] *= 0.01
-
-        self._kf.x[:4] = convert_bbox_to_z(self.bbox)
-
         self._time_since_update = 0
-        self._history = []
-        self._hit_streak = 0
-        self._age = 0
         self._id = None
 
     @property
@@ -194,24 +160,6 @@ class TrackingObject:
             setattr(self, k, getattr(obj, k))
 
         self._time_since_update = 0
-        self._history = []
-        self._hit_streak += 1
-        self._kf.update(convert_bbox_to_z(self.bbox))
-
-
-    def predict(self):
-        """Advance the state vector one frame ahead."""
-        if((self._kf.x[6]+self._kf.x[2])<=0):
-            self._kf.x[6] *= 0.0
-        self._kf.predict()
-        self._age += 1
-
-        if(self._time_since_update > 0):
-            self._hit_streak = 0
-
-        self._time_since_update += 1
-        self._history.append(convert_x_to_bbox(self._kf.x))
-        return self._history[-1]
 
 
 def linear_assignment(cost_matrix):
@@ -381,6 +329,9 @@ class ByteTrack:
         """
         self.frame_count += 1
 
+        for trk in self.trackers:
+            trk._time_since_update += 1
+
         high_score_detections = [det for det in detections if det.score >= self.conf_thres]
         low_score_detections  = [det for det in detections if det.score <  self.conf_thres]
 
@@ -410,9 +361,4 @@ class ByteTrack:
 
         self.trackers = [t for t in self.trackers if t._time_since_update <= self.max_age]
 
-        outputs = []
-        for t in self.trackers:
-            if t._hit_streak >= self.min_hits or self.frame_count <= self.min_hits:
-                outputs.append(t)
-
-        return outputs
+        return self.trackers

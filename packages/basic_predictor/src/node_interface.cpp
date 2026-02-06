@@ -187,7 +187,7 @@ PredictorNodeInterface::PredictorNodeInterface() :
     );
 
     vision_sub = create_subscription<vision_msgs::msg::Detection2DArray>(
-        "/vision/tracked", rclcpp::QoS(10), [this](const std::shared_ptr<vision_msgs::msg::Detection2DArray> msg) {
+        "  /vision/tracked", rclcpp::QoS(10), [this](const std::shared_ptr<vision_msgs::msg::Detection2DArray> msg) {
             /// NOTE: Whether to keep this gate control is still up for debate.
             auto imu = get_imu(rclcpp::Time(msg->header.stamp));
             auto detections = msg->detections;

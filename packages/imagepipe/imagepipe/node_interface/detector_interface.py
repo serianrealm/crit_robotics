@@ -190,7 +190,7 @@ class YoloPoseDetector(DetectorNodeInterface):
 
         self.vision_raw_pub = self.create_publisher(
             Detection2DArray,
-            "vision/camera_optical_frame",
+            "/vision/raw",
             QoSProfile(
                 history=QoSHistoryPolicy.KEEP_LAST,
                 depth=10,
@@ -209,13 +209,18 @@ class YoloPoseDetector(DetectorNodeInterface):
 
         prediction = self.model(img)
 
+        if isinstance(prediction, list) and len(prediction) == 1:
+            prediction = prediction[0]
+
         if len(prediction.shape) == 3:
             prediction = prediction.reshape(-1, *prediction.shape[2:])
 
         camera_matrix = np.array(camera_info.k, dtype=np.float64).reshape(3, 3)
         distortion_coefficients = np.array(camera_info.d, dtype=np.float64)
 
-        msg = Detection2DArray(header=camera_image.header)
+        header = camera_image.header
+        header.frame_id = "camera_optical_frame"
+        msg = Detection2DArray(header=header)
 
         for pred in prediction:
             image_points = pred[6:14].reshape(-1, 2)
@@ -235,7 +240,8 @@ class YoloPoseDetector(DetectorNodeInterface):
                 case _:
                     object_points = GROUNDING_SMALL_ARMOR
             
-            
+            object_points = np.array(object_points)
+
             is_success, rvec, tvec = cv2.solvePnP(
                 object_points,
                 image_points,
@@ -253,46 +259,46 @@ class YoloPoseDetector(DetectorNodeInterface):
                     throttle_duration_sec=3.0
                 )
                 continue
-            else:
-                point = tvec.reshape(-1)
-                position = Point(
-                    x=point[0],
-                    y=point[1],
-                    z=point[2]
-                )
+        
+            point = tvec.reshape(-1)
+            position = Point(
+                x=point[0],
+                y=point[1],
+                z=point[2]
+            )
 
-                quaternion = Rotation.from_rotvec(rvec.reshape(-1)).as_quat()
-                orientation=Quaternion(
-                    x=quaternion[0],
-                    y=quaternion[1],
-                    z=quaternion[2],
-                    w=quaternion[3]
-                )
+            quaternion = Rotation.from_rotvec(rvec.reshape(-1)).as_quat()
+            orientation=Quaternion(
+                x=quaternion[0],
+                y=quaternion[1],
+                z=quaternion[2],
+                w=quaternion[3]
+            )
 
-                msg.detections.append(Detection2D(
-                    header=camera_image.header,
-                    results=[ObjectHypothesisWithPose(
-                        hypothesis=ObjectHypothesis(
-                            class_id=str(int(pred[5])),
-                            score=float(pred[4])
-                        ),
-                        pose=PoseWithCovariance(
-                            pose=Pose(
-                                position=position,
-                                orientation=orientation
-                            )
+            msg.detections.append(Detection2D(
+                header=header,
+                results=[ObjectHypothesisWithPose(
+                    hypothesis=ObjectHypothesis(
+                        class_id=str(int(pred[5])),
+                        score=float(pred[4])
+                    ),
+                    pose=PoseWithCovariance(
+                        pose=Pose(
+                            position=position,
+                            orientation=orientation
                         )
-                    )],
-                    bbox=BoundingBox2D(
-                        center=Pose2D(
-                            position=Point2D(
-                                x=pred[0],
-                                y=pred[1]
-                            )
-                        ),
-                        size_x=pred[2],
-                        size_y=pred[3]
                     )
-                ))
+                )],
+                bbox=BoundingBox2D(
+                    center=Pose2D(
+                        position=Point2D(
+                            x=float((pred[0]+pred[2])/2),
+                            y=float((pred[1]+pred[3])/2)
+                        )
+                    ),
+                    size_x=float(pred[2]-pred[0]),
+                    size_y=float(pred[3]-pred[1])
+                )
+            ))
 
         self.vision_raw_pub.publish(msg)

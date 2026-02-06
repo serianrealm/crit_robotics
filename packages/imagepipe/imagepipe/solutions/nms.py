@@ -24,13 +24,16 @@ def non_max_suppresson(
         classes (list[int], optional): List of class indices to consider. If None, all classes are considered.
         max_det (int): Maximum number of detections to keep per image.
 
-    Returns:
+    Returns: 
         output (list[np.ndarray]): List of detections per image with shape (num_boxes, 6 + num_masks)
             containing (x1, y1, x2, y2, confidence, class, mask1, mask2, ...).
     """
     # Checks
     assert 0 <= conf_thres <= 1, f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
     assert 0 <= iou_thres <= 1, f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
+
+    prediction = torch.tensor(prediction)
+
     if classes is not None:
         classes = torch.tensor(classes, dtype=int)
     output = [pred[pred[:, 4] > conf_thres][:max_det] for pred in prediction]

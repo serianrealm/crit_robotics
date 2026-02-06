@@ -1,4 +1,5 @@
-#pragma once
+#ifndef _SERIAL_DRIVER_H
+#define _SERIAL_DRIVER_H
 
 #include <cassert>
 #include <rclcpp/rclcpp.hpp>
@@ -35,3 +36,8 @@ private:
    std::unique_ptr<serial::Serial> port_;
    
 };
+
+
+
+
+#endif

@@ -1,24 +1,105 @@
-#include <rclcpp/logging.hpp>
-#include <rclcpp_components/register_node_macro.hpp>
-
-#include "serial/serial.h"
-
 #include "simple_serial_driver/serial_protocol.h"
-#include "simple_serial_driver/serial_driver_node.h"
-
+#include <algorithm>
+#include <cstdint>
+#include <simple_serial_driver/serial_driver_node.h>
+#include <std_msgs/msg/detail/int8__struct.hpp>
 
 namespace ngxy_simple_serial
 {
 
-SerialDriverNode::SerialDriverNode(rclcpp::NodeOptions& options)
-    :Node("simple_serial_driver", options.automatically_declare_parameters_from_overrides(true)){
+
+enum VisionMode {
+    NO_AIM = 0,    // 无瞄准
+    AUTO_AIM,  // 普通自瞄，打车，打基地
+    OUTPOST_AIM,   // 前哨站
+    OUTPOST_LOB,   // 吊射前哨站
+    S_WM,      // 小风车
+    B_WM,      // 大风车
+    LOB,       // 吊射
+    HALT,      // 停机
+    AUTOLOB,   // 自动吊射
+    Unknown,   // 未知
+};
+
+
+std::string vision_mode2string(VisionMode mode){
+    switch (mode) {
+        case NO_AIM:
+            return "NO_AIM";
+        case AUTO_AIM:
+            return "AUTO_AIM";
+        case OUTPOST_AIM:
+            return "OUTPOST_AIM";
+        case OUTPOST_LOB:
+            return "OUTPOST_LOB";
+        case S_WM:
+            return "S_WM";
+        case B_WM:
+            return "B_WM";
+        case LOB:
+            return "LOB";
+        case HALT:
+            return "HALT";
+        case AUTOLOB:
+            return "AUTOLOB";
+        case Unknown:
+        default:
+            return "Unknown";
+    }
+}
+
+
+VisionMode get_vision_mode(uint8_t mode){
+    switch (mode) {
+        case 0:
+            return AUTO_AIM;  // NO_AIM
+        case 1:
+            return AUTO_AIM;
+        case 2:
+            return OUTPOST_AIM;
+        case 3:
+            return OUTPOST_LOB;
+        case 4:
+            return S_WM;
+        case 5:
+            return B_WM;
+        case 6:
+            return HALT;
+        case 7:
+        default:
+            return Unknown;
+    }
+}
+
+
+void SerialDriverNode::loadParams(){
+    params_.timestamp_offset = this->declare_parameter("timestamp_offset", 0.0);
+
+    params_.robot_name = this->declare_parameter("robot_name", "114514_robot");
+    
+    params_.device_name = declare_parameter<std::string>("device_name", "");
+
+    params_.baud_rate = declare_parameter<int>("baud_rate", 0);
+}
+
+SerialDriverNode::SerialDriverNode(const rclcpp::NodeOptions& _options):Node("simple_serial_driver", _options){
+    RCLCPP_INFO(this->get_logger(), "SerialDriverNode started");
     loadParams();
 
-    state_pub = create_publisher<rm_msgs::msg::State>(
-        "/robot_state", rclcpp::QoS(10));
+    tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
+    // Robot publisher
+    robot_pub = create_publisher<rm_msgs::msg::RmRobot>(params_.robot_name, rclcpp::SensorDataQoS());
+
+    joint_state_pub =
+        create_publisher<sensor_msgs::msg::JointState>("joint_states", rclcpp::SensorDataQoS());
+
+    // PcCommon publisher 测试数据发布
+    pc_common_pub = create_publisher<rm_msgs::msg::PcCommon>(params_.robot_name + "_pc_common", rclcpp::SensorDataQoS());
+
+    // Control subscription
     control_sub = create_subscription<rm_msgs::msg::Control>(
-        "/control", rclcpp::QoS(10),
+        "enemy_predictor", rclcpp::SensorDataQoS(),
         std::bind(&SerialDriverNode::ControlCallback, this, std::placeholders::_1));
     
     initPort();
@@ -30,72 +111,173 @@ SerialDriverNode::~SerialDriverNode(){
 
 void SerialDriverNode::readPortCallback(uint8_t* buffer){
     // 根据不同id, 调用不同callback
+    
     if(buffer[1] == 0x03){
-        autoaim_recv_from_port_data_t* data = (autoaim_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
-        autoaimReadPortCallback(data);
-    } else {
-        RCLCPP_ERROR(this->get_logger(), 
-        "Unknown protocol id: %d, and notice that in fact I killed autolob callback XD", buffer[1]);
+        autoaim_recv_from_port_data_t* rmsg = (autoaim_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
+        autoaimReadPortCallback(rmsg);
+    }else if(buffer[1] == 0x04){
+        autolob_recv_from_port_data_t* lmsg = (autolob_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
+        autolonReadPortCallback(lmsg);
+    }else if(buffer[1]==0xcc){
+        pcCommonReadPortCallback(buffer + sizeof(protocol_header_t));
+    }else{
+        RCLCPP_ERROR(this->get_logger(), "Unknown protocol id: %d", buffer[1]);
     }
 }
 //ros topic callback
 
-void SerialDriverNode::autoaimReadPortCallback(const autoaim_recv_from_port_data_t* data){
-    state_pub->publish(rm_msgs::msg::State()
-        .set__imu(rm_msgs::msg::Imu()
-            .set__roll(data->roll)
-            .set__pitch(data->pitch)
-            .set__yaw(data->yaw))
-        .set__robot_id(data->robot_id)
-        .set__vision_follow_enable(data->mode == 1)
-    );
+void SerialDriverNode::autoaimReadPortCallback(const autoaim_recv_from_port_data_t* _data){
+    // RCLCPP_INFO(get_logger(), "\033[0;32m AutoAim Recv From Port\033[0m");
+    static long long last_time = -1;
+    static long long now_time;
+    now_time = this->now().nanoseconds();
+    if (last_time != -1) {
+        long long diff_time = now_time - last_time;
+        if ( diff_time / (double)1000000 > 100) {
+            RCLCPP_INFO(get_logger(), "too big diff time!: %lf ms", diff_time / (double)1000000);
+        }
+    }
+    last_time = now_time;
+
+    // 仅适用于pitch和yaw相交的云台
+    tf2::Quaternion pitch2gimbal_r;
+    pitch2gimbal_r.setRPY(_data->roll, _data->pitch, _data->yaw);
+    tf2::Transform pitch2gimbal(pitch2gimbal_r);
+    // tf2::Quaternion pitch2yaw_r, yaw2gimbal_r;
+    // pitch2yaw_r.setRPY(0, _data->pitch, 0);
+    // yaw2gimbal_r.setRPY(0, 0, _data->yaw);
+    // tf2::Transform pitch2yaw(pitch2yaw_r, tf2::Vector3(params_.pitch2yaw_t[0], params_.pitch2yaw_t[1], params_.pitch2yaw_t[2]));
+    // tf2::Transform yaw2gimbal(yaw2gimbal_r);
+    // tf2::Transform pitch2gimbal = yaw2gimbal * pitch2yaw;
+
+    geometry_msgs::msg::TransformStamped t;
+    params_.timestamp_offset = this->get_parameter("timestamp_offset").as_double();
+    t.header.stamp = this->now() + rclcpp::Duration::from_seconds(params_.timestamp_offset);
+    t.header.frame_id = "gimbal";
+    t.child_frame_id = "pitch_link";
+    t.transform = tf2::toMsg(pitch2gimbal);
+    tf_broadcaster->sendTransform(t);
+
+    sensor_msgs::msg::JointState joint_msg;
+    joint_msg.header.stamp = this->now() + rclcpp::Duration::from_seconds(params_.timestamp_offset);
+    std::vector<std::string> names = {"leg_joint"};
+    std::vector<double> positions = {_data->height};
+    joint_msg.name = names;
+    joint_msg.position = positions;
+    joint_state_pub->publish(joint_msg);
+
+    rm_msgs::msg::RmRobot robot_msg;
+    robot_msg.z_velocity = _data->z_velocity;
+    robot_msg.height = _data->height;
+    robot_msg.robot_id = _data->robot_id;
+    robot_msg.bullet_velocity = _data->bullet_speed;
+
+    robot_msg.vision_mode = vision_mode2string(get_vision_mode(_data->mode));
+    robot_msg.right_press = _data->mode == 1;
+    robot_msg.switch_cam = _data->switch_cam == 1;
+    robot_msg.autoshoot_rate = _data->autoshoot_rate;
+    robot_msg.priority_type_arr.assign(
+        _data->priority_type_arr,
+        _data->priority_type_arr + sizeof(_data->priority_type_arr) / sizeof(uint8_t));
+    robot_msg.priority_level_arr.assign(
+        _data->priority_level_arr,
+        _data->priority_level_arr + sizeof(_data->priority_level_arr) / sizeof(uint8_t));
+    //robot_msg.shoot_num = _data-> shoot_num;
+    robot_msg.imu.roll = _data->roll;
+    robot_msg.imu.pitch = _data->pitch;
+    robot_msg.imu.yaw = _data->yaw;
+
+    // robotpub_low_freq(robot_msg);
+    robot_pub->publish(robot_msg);
 }
 
-void SerialDriverNode::ControlCallback(const rm_msgs::msg::Control::SharedPtr msg){
+void SerialDriverNode::pcCommonReadPortCallback(uint8_t* _data) { // 测试数据
+    //RCLCPP_INFO(this->get_logger(), "pc common recv from port");
+
+    uint8_t int_num = _data[0] >> 4;
+    uint8_t float_num = _data[0] & 0x0F;
+
+    rm_msgs::msg::PcCommon pc_common_msg;
+    pc_common_msg.int_arr.resize(int_num);
+    pc_common_msg.float_arr.resize(float_num);
+
+    for (size_t i = 0; i < int_num; ++i) {
+        int32_t val;
+        memcpy(&val, _data + 1 + i * 4, 4);
+        pc_common_msg.int_arr[i] = val;
+    }
+
+    for (size_t i = 0; i < float_num; ++i) {
+        float val;
+        memcpy(&val, _data + 1 + int_num * 4 + i * 4, 4);
+        pc_common_msg.float_arr[i] = val;
+    }
+
+    pc_common_pub->publish(pc_common_msg);
+}
+
+void SerialDriverNode::ControlCallback(const rm_msgs::msg::Control::SharedPtr _msg){
     autoaim_send_to_port_data_t data;
-    data.fromControlMsg(*msg);
+    data.fromControlMsg(*_msg);
 
-    protocol_header.start = 0x7d;
-    protocol_header.protocol_id = 0x01;
-    protocol_tail.end = 0x7e;
-
+    protocol_header_.start = 0x7d;
+    protocol_header_.protocol_id = 0x01;
+    protocol_tail_.end = 0x7e;
     writeToPort(data);
+    RCLCPP_INFO(get_logger(), "Publish Control Msg");
 }
 
 // serial Port
 void SerialDriverNode::initPort(){
+    // 检查串口设备是否存在
+    // std::string use_device_name = "";
+    // if(params_.device_name != "" && isDeviceValid(params_.device_name)){
+    //     use_device_name = params_.device_name;
+    // }else{
+    //     for(auto dn : dev_names){
+    //         if(isDeviceValid(dn)){
+    //             use_device_name = dn;
+    //             break;
+    //         }
+    //     }
+    // }
+
+    // if(use_device_name == ""){
+    //     // RCLCPP_ERROR(get_logger(), "No valid serial port found");
+    //     throw std::runtime_error("No valid serial port found");
+    // }
+
     try {
-        port = std::make_unique<serial::Serial>(
-            get_parameter("device_name").as_string(),
-            get_parameter("baud_rate").as_int(),
-            serial::Timeout::simpleTimeout(1000)
-        );
-        if (not port->isOpen()) {
-            port->open();
+        port_ = std::make_unique<serial::Serial>(params_.device_name, params_.baud_rate,
+                                                        serial::Timeout::simpleTimeout(1000));
+        if (!port_->isOpen()) {
+            port_->open();
         }
-        executor = std::thread(&SerialDriverNode::readFromPort, this);
+        read_thread_ = std::thread(&SerialDriverNode::readFromPort, this);
     } catch (const std::exception& ex) {
-        RCLCPP_ERROR_STREAM(get_logger(), "Error creating serial port: " << ex.what());
+        RCLCPP_ERROR(get_logger(), "Error creating serial port: %s - %s", params_.device_name.c_str(),
+                    ex.what());
+        throw ex;
     }
 }
 
 void SerialDriverNode::closePort(){
-    if (executor.joinable()) {
-        executor.join();
+    if (read_thread_.joinable()) {
+        read_thread_.join();
     }
 
-    if (port->isOpen()) {
-        port->close();
+    if (port_->isOpen()) {
+        port_->close();
     }
 }
 
 void SerialDriverNode::reOpenPort(){
     RCLCPP_WARN(get_logger(), "Attempting to reopen port");
     try {
-        if (port->isOpen()) {
-            port->close();
+        if (port_->isOpen()) {
+            port_->close();
         }
-        port->open();
+        port_->open();
         RCLCPP_INFO(get_logger(), "Successfully reopened port");
     } catch (const std::exception& ex) {
         RCLCPP_ERROR(get_logger(), "Error while reopening port: %s", ex.what());
@@ -122,14 +304,14 @@ void SerialDriverNode::writeToPort(autoaim_send_to_port_data_t _data){
     autoaim_send_to_port_data_t* data_content = (autoaim_send_to_port_data_t*)(send_buffer + header_len);
     protocol_tail_t* data_tail = (protocol_tail_t*)(send_buffer + header_len + data_len);
 
-    memcpy(data_header, &protocol_header, sizeof(protocol_header_t));
+    memcpy(data_header, &protocol_header_, sizeof(protocol_header_t));
 
     memcpy(data_content, &_data, sizeof(autoaim_send_to_port_data_t));
 
-    protocol_tail.crc16 = CRC16::crc16_ccitt.check_sum(send_buffer + sizeof(protocol_header_t::start), 
+    protocol_tail_.crc16 = CRC16::crc16_ccitt.check_sum(send_buffer + sizeof(protocol_header_t::start), 
                                                     sizeof(protocol_header_t::protocol_id) + data_len);
 
-    memcpy(data_tail, &protocol_tail, sizeof(protocol_tail_t));
+    memcpy(data_tail, &protocol_tail_, sizeof(protocol_tail_t));
 
     // 转义处理 不包括头尾
     static std::vector<std::pair<size_t, uint8_t>> escape_pairs;
@@ -151,7 +333,7 @@ void SerialDriverNode::writeToPort(autoaim_send_to_port_data_t _data){
     }
 
     try {
-        port->write(send_buffer_vec);
+        port_->write(send_buffer_vec);
     } catch (const std::exception& e) {
         RCLCPP_ERROR(get_logger(), "Send Failed: %s", e.what());
     }
@@ -161,9 +343,10 @@ void SerialDriverNode::readFromPort(){
     std::vector<uint8_t> read_buffer_vec;
     int header_size = sizeof(protocol_header_t);
     int autoaim_data_size = sizeof(autoaim_recv_from_port_data_t);
+    int autolob_data_size = sizeof(autolob_recv_from_port_data_t);
     int tail_size = sizeof(protocol_tail_t);
 
-    read_buffer_vec.resize(autoaim_data_size + header_size + tail_size);
+    read_buffer_vec.resize(std::max(autoaim_data_size, autolob_data_size) + header_size + tail_size);
     uint8_t* buffer = read_buffer_vec.data();
 
     int no_serial_data = 0;
@@ -178,14 +361,14 @@ void SerialDriverNode::readFromPort(){
                 // NGXY_DEBUG("correct start");
                 is_success = this->read(buffer+1, 1);
                 
-                if(is_success && (buffer[1] == 0x03 || buffer[1] == 0x04))
+                if(is_success && (buffer[1] == 0x03 || buffer[1] == 0x04 || buffer[1]==0xcc))
                 {   
                     // NGXY_DEBUG( "correct id");
                     uint8_t* read_end = buffer+1;
                     uint8_t read_data_size = 0;
                     // 循环读直到读到0x7e
                     while(read_end[0] != 0x7e){
-                        if(read_data_size >= autoaim_data_size + tail_size) break;
+                        if(read_data_size >= std::max(autoaim_data_size, autolob_data_size) + tail_size) break;
                         ++read_end;
                         is_success = this->read(read_end, 1);
                         if (read_end[0] == 0x7f) { // 转义处理
@@ -201,6 +384,10 @@ void SerialDriverNode::readFromPort(){
                         bool is_size_correct = false;
                         if(buffer[1] == 0x03) 
                             is_size_correct = read_data_size - tail_size == autoaim_data_size;
+                        else if(buffer[1] == 0x04) 
+                            is_size_correct = read_data_size - tail_size == autolob_data_size;
+                        else if(buffer[1]==0xcc)
+                            is_size_correct=true;
                         else
                             RCLCPP_WARN(get_logger(), "Read Error Protocol");
                         if(is_size_correct && 
@@ -235,4 +422,4 @@ void SerialDriverNode::readFromPort(){
 // Register the component with class_loader.
 // This acts as a sort of entry point, allowing the component to be discoverable when its library
 // is being loaded into a running process.
-RCLCPP_COMPONENTS_REGISTER_NODE(SerialDriverNode)
+RCLCPP_COMPONENTS_REGISTER_NODE(ngxy_simple_serial::SerialDriverNode)

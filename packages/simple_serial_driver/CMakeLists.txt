@@ -17,14 +17,8 @@ SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 find_package(ament_cmake_auto REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rm_interface REQUIRED)
-find_package(rm_base REQUIRED)
+find_package(rm_msgs REQUIRED)
 ament_auto_find_build_dependencies()
-
-# yaml-cpp
-find_package(yaml-cpp REQUIRED)
-set(include ${YAML_INCLUDE_DIRS} ${include})
-set(link ${YAML_CPP_LIBRARIES} ${link})
 
 # OpenCV
 find_package(OpenCV 4 REQUIRED)
@@ -37,20 +31,11 @@ set(link Eigen3::Eigen ${link})
 file(GLOB_RECURSE src "src/**")
 ament_auto_add_library(${PROJECT_NAME} SHARED ${src})
 target_include_directories(${PROJECT_NAME} PUBLIC include)
-ament_target_dependencies(${PROJECT_NAME} rm_interface)
-ament_target_dependencies(${PROJECT_NAME} rm_base)
 target_link_libraries(${PROJECT_NAME} ${link})
 
 rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN ngxy_simple_serial::SerialDriverNode
   EXECUTABLE ${PROJECT_NAME}_node
-)
-
-add_executable(serial_test src/test.cpp)
-target_link_libraries(serial_test ${PROJECT_NAME})
-
-install(TARGETS serial_test
-  DESTINATION lib/${PROJECT_NAME}
 )
 
 if(BUILD_TESTING)
@@ -67,7 +52,7 @@ endif()
 
 ament_auto_package(
   INSTALL_TO_SHARE
-  # config
-  # launch
+  urdf
+  launch
 )
 
