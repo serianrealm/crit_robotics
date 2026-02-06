@@ -17,9 +17,21 @@ SET(CMAKE_CXX_FLAGS_RELEASE "$ENV{CXXFLAGS} -O3 -Wall")
 find_package(ament_cmake_auto REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+<<<<<<< HEAD
 find_package(rm_msgs REQUIRED)
 ament_auto_find_build_dependencies()
 
+=======
+find_package(rm_interface REQUIRED)
+find_package(rm_base REQUIRED)
+ament_auto_find_build_dependencies()
+
+# yaml-cpp
+find_package(yaml-cpp REQUIRED)
+set(include ${YAML_INCLUDE_DIRS} ${include})
+set(link ${YAML_CPP_LIBRARIES} ${link})
+
+>>>>>>> main
 # OpenCV
 find_package(OpenCV 4 REQUIRED)
 set(link ${OpenCV_LIBS} ${link})
@@ -31,6 +43,11 @@ set(link Eigen3::Eigen ${link})
 file(GLOB_RECURSE src "src/**")
 ament_auto_add_library(${PROJECT_NAME} SHARED ${src})
 target_include_directories(${PROJECT_NAME} PUBLIC include)
+<<<<<<< HEAD
+=======
+ament_target_dependencies(${PROJECT_NAME} rm_interface)
+ament_target_dependencies(${PROJECT_NAME} rm_base)
+>>>>>>> main
 target_link_libraries(${PROJECT_NAME} ${link})
 
 rclcpp_components_register_node(${PROJECT_NAME}
@@ -38,6 +55,16 @@ rclcpp_components_register_node(${PROJECT_NAME}
   EXECUTABLE ${PROJECT_NAME}_node
 )
 
+<<<<<<< HEAD
+=======
+add_executable(serial_test src/test.cpp)
+target_link_libraries(serial_test ${PROJECT_NAME})
+
+install(TARGETS serial_test
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+>>>>>>> main
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   # the following line skips the linter which checks for copyrights

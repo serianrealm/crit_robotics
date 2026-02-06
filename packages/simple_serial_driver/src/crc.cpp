@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 #include <stdint.h>
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
 uint16_t bit_reverse(uint16_t x) {
     uint16_t result = 0;
     for (int i = 0; i < 16; ++i) {

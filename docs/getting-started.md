@@ -80,7 +80,11 @@ Optional parameters:
 ### UDP Bridge
 
 ```bash
+<<<<<<< HEAD
 ros2 run udp_socket udp_socket --ros-args --params-file packages/udp_socket/config/default.yaml
+=======
+ros2 run udp_bridge udp_bridge --ros-args --params-file packages/udp_bridge/config/default.yaml
+>>>>>>> main
 ```
 
 Publish to `test_send` or listen on `test_recv` to verify connectivity.

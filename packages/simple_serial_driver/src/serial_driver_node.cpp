@@ -1,12 +1,24 @@
+<<<<<<< HEAD
 #include "simple_serial_driver/serial_protocol.h"
 #include <algorithm>
 #include <cstdint>
 #include <simple_serial_driver/serial_driver_node.h>
 #include <std_msgs/msg/detail/int8__struct.hpp>
+=======
+#include <rclcpp/logging.hpp>
+#include <rclcpp_components/register_node_macro.hpp>
+
+#include "serial/serial.h"
+
+#include "simple_serial_driver/serial_protocol.h"
+#include "simple_serial_driver/serial_driver_node.h"
+
+>>>>>>> main
 
 namespace ngxy_simple_serial
 {
 
+<<<<<<< HEAD
 
 enum VisionMode {
     NO_AIM = 0,    // 无瞄准
@@ -103,6 +115,17 @@ SerialDriverNode::SerialDriverNode(const rclcpp::NodeOptions& _options):Node("si
     // Control subscription
     control_sub = create_subscription<rm_msgs::msg::Control>(
         "enemy_predictor", rclcpp::SensorDataQoS(),
+=======
+SerialDriverNode::SerialDriverNode(rclcpp::NodeOptions& options)
+    :Node("simple_serial_driver", options.automatically_declare_parameters_from_overrides(true)){
+    loadParams();
+
+    state_pub = create_publisher<rm_msgs::msg::State>(
+        "/robot_state", rclcpp::QoS(10));
+
+    control_sub = create_subscription<rm_msgs::msg::Control>(
+        "/control", rclcpp::QoS(10),
+>>>>>>> main
         std::bind(&SerialDriverNode::ControlCallback, this, std::placeholders::_1));
     
     initPort();
@@ -114,6 +137,7 @@ SerialDriverNode::~SerialDriverNode(){
 
 void SerialDriverNode::readPortCallback(uint8_t* buffer){
     // 根据不同id, 调用不同callback
+<<<<<<< HEAD
     
     if(buffer[1] == 0x03){
         autoaim_recv_from_port_data_t* rmsg = (autoaim_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
@@ -125,10 +149,19 @@ void SerialDriverNode::readPortCallback(uint8_t* buffer){
         pcCommonReadPortCallback(buffer + sizeof(protocol_header_t));
     }else{
         RCLCPP_ERROR(this->get_logger(), "Unknown protocol id: %d", buffer[1]);
+=======
+    if(buffer[1] == 0x03){
+        autoaim_recv_from_port_data_t* data = (autoaim_recv_from_port_data_t*)(buffer + sizeof(protocol_header_t));
+        autoaimReadPortCallback(data);
+    } else {
+        RCLCPP_ERROR(this->get_logger(), 
+        "Unknown protocol id: %d, and notice that in fact I killed autolob callback XD", buffer[1]);
+>>>>>>> main
     }
 }
 //ros topic callback
 
+<<<<<<< HEAD
 void SerialDriverNode::autoaimReadPortCallback(const autoaim_recv_from_port_data_t* _data){
     // RCLCPP_INFO(get_logger(), "\033[0;32m AutoAim Recv From Port\033[0m");
     static long long last_time = -1;
@@ -228,10 +261,33 @@ void SerialDriverNode::ControlCallback(const rm_msgs::msg::Control::SharedPtr _m
     protocol_tail_.end = 0x7e;
     writeToPort(data);
     RCLCPP_INFO(get_logger(), "Publish Control Msg");
+=======
+void SerialDriverNode::autoaimReadPortCallback(const autoaim_recv_from_port_data_t* data){
+    state_pub->publish(rm_msgs::msg::State()
+        .set__imu(rm_msgs::msg::Imu()
+            .set__roll(data->roll)
+            .set__pitch(data->pitch)
+            .set__yaw(data->yaw))
+        .set__robot_id(data->robot_id)
+        .set__vision_follow_enable(data->mode == 1)
+    );
+}
+
+void SerialDriverNode::ControlCallback(const rm_msgs::msg::Control::SharedPtr msg){
+    autoaim_send_to_port_data_t data;
+    data.fromControlMsg(*msg);
+
+    protocol_header.start = 0x7d;
+    protocol_header.protocol_id = 0x01;
+    protocol_tail.end = 0x7e;
+
+    writeToPort(data);
+>>>>>>> main
 }
 
 // serial Port
 void SerialDriverNode::initPort(){
+<<<<<<< HEAD
     // 检查串口设备是否存在
     // std::string use_device_name = "";
     // if(params_.device_name != "" && isDeviceValid(params_.device_name)){
@@ -261,26 +317,56 @@ void SerialDriverNode::initPort(){
         RCLCPP_ERROR(get_logger(), "Error creating serial port: %s - %s", params_.device_name.c_str(),
                     ex.what());
         throw ex;
+=======
+    try {
+        port = std::make_unique<serial::Serial>(
+            get_parameter("device_name").as_string(),
+            get_parameter("baud_rate").as_int(),
+            serial::Timeout::simpleTimeout(1000)
+        );
+        if (not port->isOpen()) {
+            port->open();
+        }
+        executor = std::thread(&SerialDriverNode::readFromPort, this);
+    } catch (const std::exception& ex) {
+        RCLCPP_ERROR_STREAM(get_logger(), "Error creating serial port: " << ex.what());
+>>>>>>> main
     }
 }
 
 void SerialDriverNode::closePort(){
+<<<<<<< HEAD
     if (read_thread_.joinable()) {
         read_thread_.join();
     }
 
     if (port_->isOpen()) {
         port_->close();
+=======
+    if (executor.joinable()) {
+        executor.join();
+    }
+
+    if (port->isOpen()) {
+        port->close();
+>>>>>>> main
     }
 }
 
 void SerialDriverNode::reOpenPort(){
     RCLCPP_WARN(get_logger(), "Attempting to reopen port");
     try {
+<<<<<<< HEAD
         if (port_->isOpen()) {
             port_->close();
         }
         port_->open();
+=======
+        if (port->isOpen()) {
+            port->close();
+        }
+        port->open();
+>>>>>>> main
         RCLCPP_INFO(get_logger(), "Successfully reopened port");
     } catch (const std::exception& ex) {
         RCLCPP_ERROR(get_logger(), "Error while reopening port: %s", ex.what());
@@ -307,6 +393,7 @@ void SerialDriverNode::writeToPort(autoaim_send_to_port_data_t _data){
     autoaim_send_to_port_data_t* data_content = (autoaim_send_to_port_data_t*)(send_buffer + header_len);
     protocol_tail_t* data_tail = (protocol_tail_t*)(send_buffer + header_len + data_len);
 
+<<<<<<< HEAD
     memcpy(data_header, &protocol_header_, sizeof(protocol_header_t));
 
     memcpy(data_content, &_data, sizeof(autoaim_send_to_port_data_t));
@@ -315,6 +402,16 @@ void SerialDriverNode::writeToPort(autoaim_send_to_port_data_t _data){
                                                     sizeof(protocol_header_t::protocol_id) + data_len);
 
     memcpy(data_tail, &protocol_tail_, sizeof(protocol_tail_t));
+=======
+    memcpy(data_header, &protocol_header, sizeof(protocol_header_t));
+
+    memcpy(data_content, &_data, sizeof(autoaim_send_to_port_data_t));
+
+    protocol_tail.crc16 = CRC16::crc16_ccitt.check_sum(send_buffer + sizeof(protocol_header_t::start), 
+                                                    sizeof(protocol_header_t::protocol_id) + data_len);
+
+    memcpy(data_tail, &protocol_tail, sizeof(protocol_tail_t));
+>>>>>>> main
 
     // 转义处理 不包括头尾
     static std::vector<std::pair<size_t, uint8_t>> escape_pairs;
@@ -336,7 +433,11 @@ void SerialDriverNode::writeToPort(autoaim_send_to_port_data_t _data){
     }
 
     try {
+<<<<<<< HEAD
         port_->write(send_buffer_vec);
+=======
+        port->write(send_buffer_vec);
+>>>>>>> main
     } catch (const std::exception& e) {
         RCLCPP_ERROR(get_logger(), "Send Failed: %s", e.what());
     }
@@ -346,10 +447,16 @@ void SerialDriverNode::readFromPort(){
     std::vector<uint8_t> read_buffer_vec;
     int header_size = sizeof(protocol_header_t);
     int autoaim_data_size = sizeof(autoaim_recv_from_port_data_t);
+<<<<<<< HEAD
     int autolob_data_size = sizeof(autolob_recv_from_port_data_t);
     int tail_size = sizeof(protocol_tail_t);
 
     read_buffer_vec.resize(std::max(autoaim_data_size, autolob_data_size) + header_size + tail_size);
+=======
+    int tail_size = sizeof(protocol_tail_t);
+
+    read_buffer_vec.resize(autoaim_data_size + header_size + tail_size);
+>>>>>>> main
     uint8_t* buffer = read_buffer_vec.data();
 
     int no_serial_data = 0;
@@ -364,14 +471,22 @@ void SerialDriverNode::readFromPort(){
                 // NGXY_DEBUG("correct start");
                 is_success = this->read(buffer+1, 1);
                 
+<<<<<<< HEAD
                 if(is_success && (buffer[1] == 0x03 || buffer[1] == 0x04 || buffer[1]==0xcc))
+=======
+                if(is_success && (buffer[1] == 0x03 || buffer[1] == 0x04))
+>>>>>>> main
                 {   
                     // NGXY_DEBUG( "correct id");
                     uint8_t* read_end = buffer+1;
                     uint8_t read_data_size = 0;
                     // 循环读直到读到0x7e
                     while(read_end[0] != 0x7e){
+<<<<<<< HEAD
                         if(read_data_size >= std::max(autoaim_data_size, autolob_data_size) + tail_size) break;
+=======
+                        if(read_data_size >= autoaim_data_size + tail_size) break;
+>>>>>>> main
                         ++read_end;
                         is_success = this->read(read_end, 1);
                         if (read_end[0] == 0x7f) { // 转义处理
@@ -387,10 +502,13 @@ void SerialDriverNode::readFromPort(){
                         bool is_size_correct = false;
                         if(buffer[1] == 0x03) 
                             is_size_correct = read_data_size - tail_size == autoaim_data_size;
+<<<<<<< HEAD
                         else if(buffer[1] == 0x04) 
                             is_size_correct = read_data_size - tail_size == autolob_data_size;
                         else if(buffer[1]==0xcc)
                             is_size_correct=true;
+=======
+>>>>>>> main
                         else
                             RCLCPP_WARN(get_logger(), "Read Error Protocol");
                         if(is_size_correct && 
@@ -425,4 +543,8 @@ void SerialDriverNode::readFromPort(){
 // Register the component with class_loader.
 // This acts as a sort of entry point, allowing the component to be discoverable when its library
 // is being loaded into a running process.
+<<<<<<< HEAD
 RCLCPP_COMPONENTS_REGISTER_NODE(ngxy_simple_serial::SerialDriverNode)
+=======
+RCLCPP_COMPONENTS_REGISTER_NODE(SerialDriverNode)
+>>>>>>> main

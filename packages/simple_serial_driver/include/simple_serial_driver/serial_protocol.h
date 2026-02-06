@@ -1,20 +1,31 @@
+<<<<<<< HEAD
 #ifndef _PROCOTOL_H
 #define _PROCOTOL_H
 
 #include <cstdint>
 #include <rm_msgs/msg/control.hpp>
 
+=======
+#include "rm_msgs/msg/control.hpp"
+
+#pragma once
+>>>>>>> main
 #pragma pack(1)
 
 struct autoaim_send_to_port_data_t{
     float pitch;
     float yaw;
+<<<<<<< HEAD
     uint8_t flag;  // 0/1: 能否跟上目标，是否控制云台
+=======
+    uint8_t flag;
+>>>>>>> main
     uint8_t one_shot_num;
     uint8_t rate;
     uint8_t vision_follow_id;
     uint8_t cam_mode;
 
+<<<<<<< HEAD
     void fromControlMsg(rm_msgs::msg::Control msg){
         pitch = msg.imu.pitch;
         yaw = msg.imu.yaw;
@@ -22,6 +33,15 @@ struct autoaim_send_to_port_data_t{
         vision_follow_id = msg.vision_follow_id;
         rate = msg.booster_enable ? 10 : 0;
         one_shot_num = msg.booster_enable ? 1 : 0;
+=======
+    void fromControlMsg(const rm_msgs::msg::Control& msg){
+        pitch = msg.imu.pitch;
+        yaw = msg.imu.yaw;
+        flag = msg.booster_enable;
+        vision_follow_id = msg.vision_follow_id;
+        one_shot_num = 3;
+        rate = 10;
+>>>>>>> main
         cam_mode = 0;
     }
 };
@@ -61,6 +81,7 @@ struct autoaim_recv_from_port_data_t{
     uint8_t priority_level_arr[8];
     // 切换相机
     uint8_t switch_cam;
+<<<<<<< HEAD
     //uint16_t shoot_num;
 };
 
@@ -77,6 +98,8 @@ struct autolob_recv_from_port_data_t{
     float euler[3];
     float bullet_speed;
     autolob_content content;
+=======
+>>>>>>> main
 };
 
 // 保证声明顺序和发送数据顺序一致
@@ -88,16 +111,23 @@ struct protocol_header_t{
     //id: 0x04 电控发给英雄吊射
 };
 
+<<<<<<< HEAD
 struct old_protocol_header_t{
     uint8_t start;
     uint8_t data_len;
 };
 
+=======
+>>>>>>> main
 struct protocol_tail_t{
     uint16_t crc16;
     uint8_t end;
 };
 
+<<<<<<< HEAD
 #pragma pack()
 
 #endif // _PROCOTOL_H
+=======
+#pragma pack()
+>>>>>>> main

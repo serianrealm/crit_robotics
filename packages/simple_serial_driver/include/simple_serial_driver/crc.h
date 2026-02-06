@@ -1,11 +1,18 @@
 #ifndef _CRC_H
 #define _CRC_H
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
 #include <vector>
 
 #include <cstdint>
 #include <cstring>
 
+<<<<<<< HEAD
 #include <rclcpp/rclcpp.hpp>
+=======
+>>>>>>> main
 class CRC16 {
 public:
     uint16_t table[256];

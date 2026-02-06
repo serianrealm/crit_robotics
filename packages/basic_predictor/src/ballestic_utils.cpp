@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 #include "enemy_predictor/ballestic_utils.hpp"
+=======
+#include "basic_predictor/ballestic_utils.hpp"
+>>>>>>> main
 #include <cmath>
 #include <limits>
 #include <algorithm>
@@ -95,6 +99,7 @@ void BallisticSolver::build(double v, double k) {
 
     has_built_LUT = true;
 }
+<<<<<<< HEAD
 BallisticResult BallisticSolver::query(double x, double y, double z) const {
     if (not is_built()
         or std::hypot(x, y) - INTERP <= 0 
@@ -110,6 +115,10 @@ BallisticResult BallisticSolver::query(double x, double y, double z) const {
         };
     }
     double R = std::hypot(x,y);
+=======
+
+BallisticResult BallisticSolver::query2d(double R, double z) const {
+>>>>>>> main
     size_t i = (size_t)std::floor((1.0 / INTERP) * R);
     size_t j = (size_t)std::floor((1.0 / INTERP) * (z - Z_MIN));
 
@@ -128,6 +137,7 @@ BallisticResult BallisticSolver::query(double x, double y, double z) const {
     double t01 = t_LUT[pos(i, j+1)];
     double t11 = t_LUT[pos(i+1, j+1)];
 
+<<<<<<< HEAD
    
      return BallisticResult{
         .success=true,
@@ -135,4 +145,32 @@ BallisticResult BallisticSolver::query(double x, double y, double z) const {
         .yaw=y/x,
         .t=(1 - u) * (1 - v) * t00  + u * (1 - v) * t10  + (1 - u) * v * t01  + u * v * t11
     };
+=======
+    return BallisticResult{
+        .success=true,
+        .pitch=(1 - u) * (1 - v) * th00 + u * (1 - v) * th10 + (1 - u) * v * th01 + u * v * th11,
+        .t=(1 - u) * (1 - v) * t00  + u * (1 - v) * t10  + (1 - u) * v * t01  + u * v * t11
+    };
+}
+
+BallisticResult BallisticSolver::query(double x, double y, double z) const {
+    if (not is_built()
+        or std::hypot(x, y) - INTERP <= 0 
+        or std::hypot(x, y) + INTERP >= R_MAX 
+        or z - INTERP <= Z_MIN or z + INTERP >= Z_MAX) {
+
+        return BallisticResult{
+            .success=false, 
+            .pitch=std::atan2(
+                z, 
+                std::hypot(x, y)), 
+            .t=0.
+        };
+    }
+
+    return query2d(
+        std::hypot(x, y), 
+        z
+    );
+>>>>>>> main
 }

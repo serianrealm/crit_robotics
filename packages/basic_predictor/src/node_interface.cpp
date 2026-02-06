@@ -1,7 +1,18 @@
+<<<<<<< HEAD
 #include "enemy_predictor/node_interface.hpp"
 #include "enemy_predictor/enemy_predictor_node.h"
 #include <std_msgs/msg/header.hpp>
 
+=======
+#include "basic_predictor/node_interface.hpp"
+
+#include <std_msgs/msg/header.hpp>
+
+EnemyPredictor::EnemyPredictor(const rclcpp::Node* node) {
+    static_cast<void>(node);
+}
+
+>>>>>>> main
 EnergyPredictor::EnergyPredictor(const rclcpp::Node* node) {
     static_cast<void>(node);
 }

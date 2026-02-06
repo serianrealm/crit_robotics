@@ -43,7 +43,11 @@ Crit Robotics is organized as a ROS 2 workspace with a set of focused packages. 
 - Depends on GPU/CPU OpenVINO runtime (configurable via ROS parameters), `lap` (assignment), and `numba`.
 - Designed to be extended with additional pipelines that inherit from `PosePipelineNodeInterface`.
 
+<<<<<<< HEAD
 ### udp_socket
+=======
+### udp_bridge
+>>>>>>> main
 
 - Boost.Asio-based ROS 2 node for UDP broadcast/receive.
 - Exposes a `register_callback` hook so application-specific logic can be layered on top; `ProtobufLayer` shows how to convert between UDP payloads and `std_msgs/String`.
@@ -58,7 +62,11 @@ Crit Robotics is organized as a ROS 2 workspace with a set of focused packages. 
 
 1. `unicam` publishes `/<camera_ns>/image_raw` and calibrated `CameraInfo` using the namespaces defined in `config/default.yaml`.
 2. `imagepipe` subscribes to one or more namespaces (parameter `subscribe_to`), performs detection + tracking, and publishes `detection_array` messages.
+<<<<<<< HEAD
 3. Consumers (gimbal control, UI overlays, telemetry exporters) use the detection array, optionally bridging it over the network via `udp_socket`.
+=======
+3. Consumers (gimbal control, UI overlays, telemetry exporters) use the detection array, optionally bridging it over the network via `udp_bridge`.
+>>>>>>> main
 4. Commands to actuators are expressed using `control_msgs/Command` for consistency.
 
 ## Launching Multiple Packages
@@ -69,7 +77,11 @@ In the future, `crit_robotics/launch/bringup.launch.py` will coordinate the came
 
 - **New cameras** – Derive from `CameraNodeInterface`, implement `run()` and `dynamic_reconfigure()`, then wire up parameters in `config/` and `launch/`.
 - **New perception pipelines** – Implement a new node inheriting from `PosePipelineNodeInterface` (or `ImagePipelineNodeInterface`) and expose ROS parameters for tuning.
+<<<<<<< HEAD
 - **Networking formats** – Modify `packages/udp_socket/proto/` and regenerate bindings (future work) or simply reinterpret the byte strings inside `register_callback`.
+=======
+- **Networking formats** – Modify `packages/udp_bridge/proto/` and regenerate bindings (future work) or simply reinterpret the byte strings inside `register_callback`.
+>>>>>>> main
 - **Control interfaces** – Add messages/services under `packages/control_msgs/msg|srv` and remember to update the `CMakeLists.txt` and `package.xml` dependencies.
 
 For deeper instructions about environment setup, GPU configuration, and troubleshooting, head to `docs/getting-started.md`.

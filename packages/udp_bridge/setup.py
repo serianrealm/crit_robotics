@@ -1,14 +1,8 @@
-<<<<<<< HEAD
-import os
-
-=======
->>>>>>> main
-from setuptools import find_packages, setup
 from glob import glob
+from setuptools import find_packages, setup
 
-package_name = 'imagepipe'
+package_name = 'udp_bridge'
 
-# HACK: This is not a perfect data_files load method.
 setup(
     name=package_name,
     version='0.0.0',
@@ -16,28 +10,21 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', glob('config/*')),
         ('share/' + package_name + '/launch', glob('launch/*')),
-        ('share/' + package_name + '/yolo/v10', glob('**/config.json', recursive=True)),
-        ('share/' + package_name + '/yolo/v10', glob('**/pytorch_model.bin', recursive=True))
+        ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='root',
+    maintainer='Elysia',
     maintainer_email='serianrealm@gmail.com',
     description='TODO: Package description',
-<<<<<<< HEAD
-    license='TODO: License declaration',
-=======
     license='Apache-2.0',
->>>>>>> main
     extras_require={
     },
     entry_points={
         'console_scripts': [
-            'detector = imagepipe.detector:main',
-            'tracker = imagepipe.tracker:main'
+            'udp_bridge = udp_bridge.udp_bridge:main'
         ],
     },
 )

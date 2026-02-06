@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 #ifndef _SERIAL_DRIVER_NODE_H
 #define _SERIAL_DRIVER_NODE_H
 
@@ -50,6 +51,26 @@ struct SerialDriverNodeParams{
 class SerialDriverNode : public rclcpp::Node{
 public:
     explicit SerialDriverNode(const rclcpp::NodeOptions& _options);
+=======
+#pragma once
+
+#include <rclcpp/node.hpp>
+#include <rclcpp/publisher.hpp>
+#include <rclcpp/subscription.hpp>
+
+#include <simple_serial_driver/serial_protocol.h>
+#include <simple_serial_driver/crc.h>
+#include <serial/serial.h>
+
+#include <rm_msgs/msg/control.hpp>
+#include <rm_msgs/msg/state.hpp>
+
+static const std::vector<std::string> dev_names = {"/dev/ttyUSB0", "/dev/ttyACM0"};
+
+class SerialDriverNode : public rclcpp::Node{
+public:
+    explicit SerialDriverNode(rclcpp::NodeOptions& options);
+>>>>>>> main
 
     ~SerialDriverNode() override;
 
@@ -57,6 +78,7 @@ public:
 
     //ros topic callback
     void readPortCallback(uint8_t* buffer);
+<<<<<<< HEAD
     void pcCommonReadPortCallback(uint8_t* _data); // 测试数据
     void autoaimReadPortCallback(const autoaim_recv_from_port_data_t* _data);
     void autolonReadPortCallback(const autolob_recv_from_port_data_t* _data){
@@ -69,6 +91,10 @@ public:
         RCLCPP_INFO(this->get_logger(), std::to_string(_data->content.v0).c_str());
     }
     void ControlCallback(const rm_msgs::msg::Control::SharedPtr _msg);
+=======
+    void autoaimReadPortCallback(const autoaim_recv_from_port_data_t* data);
+    void ControlCallback(const rm_msgs::msg::Control::SharedPtr msg);
+>>>>>>> main
 
     // serial Port
     bool isDeviceValid(const std::string& dev_name){
@@ -81,10 +107,16 @@ public:
     void readFromPort();
 
     bool read(uint8_t* buffer, int size){
+<<<<<<< HEAD
         int res = port_->read(buffer, size);
         if(res != size)
             RCLCPP_WARN(get_logger(),"Read Failed, read: %d", res);
         // RCLCPP_INFO(get_logger(), "\033[0;32m Should Read %d, actually Read %d\033[0m", size, res);
+=======
+        int res = port->read(buffer, size);
+        if(res != size)
+            RCLCPP_WARN(get_logger(),"Read Failed, read: %d", res);
+>>>>>>> main
         return res == size;
     }
     
@@ -100,6 +132,7 @@ public:
     }
 
 private:
+<<<<<<< HEAD
     // parameters
     SerialDriverNodeParams params_;
 
@@ -125,3 +158,15 @@ private:
 }
 
 #endif // _SERIAL_DRIVER_NODE_H_
+=======
+    // port
+    std::unique_ptr<serial::Serial> port;
+    std::thread executor;
+    protocol_header_t protocol_header;
+    protocol_tail_t protocol_tail;
+
+    // ros communication
+    rclcpp::Publisher<rm_msgs::msg::State>::SharedPtr state_pub;
+    rclcpp::Subscription<rm_msgs::msg::Control>::SharedPtr control_sub;
+};
+>>>>>>> main

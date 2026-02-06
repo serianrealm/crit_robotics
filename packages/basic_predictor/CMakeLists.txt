@@ -1,10 +1,15 @@
+<<<<<<< HEAD
 cmake_minimum_required(VERSION 3.8)
+=======
+cmake_minimum_required(VERSION 3.20)
+>>>>>>> main
 project(basic_predictor)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+<<<<<<< HEAD
 #平台配置
 add_compile_options(-O3)
 set(CMAKE_CXX_STANDARD 20)
@@ -64,6 +69,13 @@ rclcpp_components_register_node(${PROJECT_NAME}
   PLUGIN EnemyPredictor
   EXECUTABLE ${PROJECT_NAME}_node
 )
+=======
+# find dependencies
+find_package(ament_cmake REQUIRED)
+# uncomment the following section in order to fill in
+# further dependencies manually.
+# find_package(<dependency> REQUIRED)
+>>>>>>> main
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
@@ -77,8 +89,12 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+<<<<<<< HEAD
 ament_auto_package(
   INSTALL_TO_SHARE
   # config
   # launch
 )
+=======
+ament_package()
+>>>>>>> main
